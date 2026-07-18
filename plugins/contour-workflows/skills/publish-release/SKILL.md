@@ -36,8 +36,12 @@ reason to stop rather than proceed.
    ```
 2. Identify the target draft:
    ```
-   gh release view <tag> --json tagName,isDraft,isLatest,body,assets,createdAt,targetCommitish
+   gh release view <tag> --json tagName,isDraft,isPrerelease,body,assets,createdAt,targetCommitish
    ```
+   `isLatest` is **not** a valid field for `gh release view` — asking for it makes the whole
+   command fail with `Unknown JSON field`. It only exists on `gh release list`, and it would
+   be useless here regardless: a draft is never the latest release, so it is always false.
+   See Step 5 for how to find the current latest.
 3. If the release is not a draft, it is already published — **stop** and say so. Do not
    re-publish or re-tag.
 
@@ -113,6 +117,16 @@ name the platform that would be left without a download.
 
 Show the user a summary — tag, title, asset count, and whether it will become the latest
 release — and get explicit confirmation. Publishing is public and effectively irreversible.
+
+To say what `--latest` would displace, read the current latest release. This is the one place
+`isLatest` is available, and it is only valid on `release list`, never on `release view`:
+
+```
+gh release list --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName'
+```
+
+An empty result means this is the project's first published release, so it becomes latest
+unconditionally.
 
 ```
 gh release edit <tag> --draft=false --latest

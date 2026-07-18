@@ -23,7 +23,7 @@ users keep receiving an old version indefinitely while every other channel moves
 ## Context
 
 - Repository remote: !`git remote get-url origin 2>/dev/null || echo "(no remote)"`
-- Latest release: !`gh release view --json tagName,isLatest,isDraft 2>/dev/null || echo "(none)"`
+- Latest release: !`gh release view --json tagName,isDraft,isPrerelease,publishedAt 2>/dev/null || echo "(none)"`
 
 ## Step 1 — Establish what is being packaged
 
