@@ -64,6 +64,12 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 |---|---|
 | `/work-issue <n>` | Takes an issue to a committed branch. Reads everything it links to, classifies it bug/feature/chore, then reproduces-and-regression-tests or designs-and-tests accordingly. |
 
+### C++
+
+| Skill | What it does |
+|---|---|
+| `/cpp-guidelines` | The C++23 standards and load-bearing design principles used across these projects — `std::expected` error handling, dependency injection, data-driven design, testability, zero-warning policy. Defers to each project's `.clang-tidy` and `AGENT.md`. |
+
 ### Analysis
 
 | Skill | What it does |

@@ -1,6 +1,6 @@
 {
   "name": "contour-workflows",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Git, review, CI and analysis workflow skills for C++ projects",
   "author": {
     "name": "Contour Terminal",
