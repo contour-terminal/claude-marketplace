@@ -77,7 +77,43 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 |---|---|
 | `/analyze-project` | Full project analysis: scope, architecture, data and execution flow, a deep performance pass, strengths, weaknesses, suggested next features. |
 | `/sloc [path…]` | Source lines of code — grand total plus per-module and per-language breakdowns, each split into project vs. test code. |
+
+### Releases
+
+| Skill | What it does |
+|---|---|
 | `/add-release-note` | Drafts changelog entries for the branch, matching the project's existing style. Finds AppStream `metainfo.xml`, `CHANGELOG.md`, or `NEWS` automatically. |
+| `/draft-release [version]` | Bumps the version wherever the project actually keeps it, stamps the changelog, commits, and pushes the release branch or tag so CI builds a draft. Publishes nothing. |
+| `/publish-release [version]` | The gate before going public: refuses until every CI job is green and every expected artifact is attached, then publishes, marks it latest, and opens the next development cycle in the changelog. |
+| `/update-flathub [version]` | Bumps a published release into its `flathub/<app-id>` manifest — recomputes the source tarball checksum and opens the pull request. |
+
+These four are a pipeline: add notes as you go, `/draft-release` to cut it, `/publish-release`
+once CI proves the artifacts exist, and `/update-flathub` for anything shipped on Flathub.
+
+#### How the release skills adapt per project
+
+Our repositories do not share one release procedure, so the skills detect the one each project
+actually uses rather than hardcoding any of them — via
+`plugins/contour-workflows/lib/release-model.sh`, which probes for the version source
+(`metainfo.xml`, a committed `version.txt`, `git describe`, or a literal `project(… VERSION …)`),
+the changelog file, and how the release workflow is triggered.
+
+Where detection is ambiguous, or a project wants to pin the answer, commit a
+`.github/release.json` — its fields are merged over whatever was detected:
+
+```json
+{
+  "versionSource": "metainfo.xml",
+  "changelog": "metainfo.xml",
+  "trigger": "release-branch-pr",
+  "artifacts": ["*.deb", "*.dmg", "*.msi", "*.zip"],
+  "syncVersion": ["vcpkg.json"]
+}
+```
+
+`/draft-release` and `/publish-release` both refuse to run against a workflow that only builds
+*after* a release is published, because that ordering makes it impossible to verify artifacts
+before publishing.
 
 ## Hooks
 

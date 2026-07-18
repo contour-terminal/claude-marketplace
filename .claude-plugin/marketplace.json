@@ -13,14 +13,15 @@
     {
       "name": "contour-workflows",
       "source": "./plugins/contour-workflows",
-      "version": "1.2.0",
-      "description": "Git, review, CI and analysis workflow skills for C++ projects",
+      "version": "1.3.0",
+      "description": "Git, review, CI, release and analysis workflow skills for C++ projects",
       "category": "development",
       "keywords": [
         "git",
         "cpp",
         "code-review",
         "ci",
+        "release",
         "github",
         "gitlab"
       ],
