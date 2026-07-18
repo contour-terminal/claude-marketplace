@@ -1,0 +1,14 @@
+# Never allow credential-bearing files into this public repo.
+settings.json
+settings.local.json
+.mcp.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+credentials.json
+
+# OS / editor noise
+.DS_Store
+*.swp

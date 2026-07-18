@@ -1,0 +1,30 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "contour-terminal",
+  "description": "Claude Code plugins for the Contour Terminal organization",
+  "owner": {
+    "name": "Contour Terminal",
+    "url": "https://github.com/contour-terminal"
+  },
+  "metadata": {
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "contour-workflows",
+      "source": "./plugins/contour-workflows",
+      "description": "Git, review, CI and analysis workflow skills for C++ projects",
+      "category": "development",
+      "keywords": [
+        "git",
+        "cpp",
+        "code-review",
+        "ci",
+        "github",
+        "gitlab"
+      ],
+      "homepage": "https://github.com/contour-terminal/claude-marketplace",
+      "license": "Apache-2.0"
+    }
+  ]
+}

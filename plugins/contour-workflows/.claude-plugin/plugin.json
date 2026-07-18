@@ -1,0 +1,20 @@
+{
+  "name": "contour-workflows",
+  "version": "1.0.0",
+  "description": "Git, review, CI and analysis workflow skills for C++ projects",
+  "author": {
+    "name": "Contour Terminal",
+    "url": "https://github.com/contour-terminal"
+  },
+  "homepage": "https://github.com/contour-terminal/claude-marketplace",
+  "repository": "https://github.com/contour-terminal/claude-marketplace",
+  "license": "Apache-2.0",
+  "keywords": [
+    "git",
+    "cpp",
+    "code-review",
+    "ci",
+    "github",
+    "gitlab"
+  ]
+}
