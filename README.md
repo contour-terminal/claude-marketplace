@@ -69,6 +69,7 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | Skill | What it does |
 |---|---|
 | `/cpp-guidelines` | The C++23 standards and load-bearing design principles used across these projects — `std::expected` error handling, dependency injection, data-driven design, testability, zero-warning policy. Defers to each project's `.clang-tidy` and `AGENT.md`. |
+| `/sanitize` | Builds and runs tests under ASan/UBSan/TSan, then diagnoses each report to a root cause. Uses the project's own sanitizer preset when one exists, otherwise a disposable build tree. |
 
 ### Analysis
 
@@ -77,6 +78,22 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | `/analyze-project` | Full project analysis: scope, architecture, data and execution flow, a deep performance pass, strengths, weaknesses, suggested next features. |
 | `/sloc [path…]` | Source lines of code — grand total plus per-module and per-language breakdowns, each split into project vs. test code. |
 | `/add-release-note` | Drafts changelog entries for the branch, matching the project's existing style. Finds AppStream `metainfo.xml`, `CHANGELOG.md`, or `NEWS` automatically. |
+
+## Hooks
+
+The plugin ships one hook: **clang-format on edit**. After Claude edits or writes a C/C++
+file, the file is reformatted in place with `clang-format`, so formatting noise never reaches
+review.
+
+It is deliberately conservative and no-ops unless every condition holds:
+
+- the edited file has a C/C++ extension,
+- `clang-format` is on `PATH`,
+- a `.clang-format` file exists at or above the file's directory.
+
+So it stays silent in non-C++ repos and in C++ repos that don't define a style. To opt out
+entirely, disable the plugin's hooks in `/plugin` — or install the skills without them by
+copying the `skills/` directory into a project.
 
 Both GitHub and GitLab are supported where it matters (`/create-pr`, `/update-pr`,
 `/address-review`, `/fix-ci`, `/work-issue`); the platform is detected by probing `gh` and

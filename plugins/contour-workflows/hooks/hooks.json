@@ -1,0 +1,17 @@
+{
+  "description": "Runs clang-format on C/C++ files after Claude edits them, when the project defines a .clang-format style",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/clang-format-edit.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
