@@ -45,7 +45,7 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | Skill | What it does |
 |---|---|
 | `/commit` | Groups pending changes into atomic semantic units and makes one commit per group. |
-| `/amend` | Folds working-tree changes into the last commit, optionally rewording. Refuses to rewrite shared history; force-pushes only with `--force-with-lease`. |
+| `/absorb` | Blames each pending hunk to the branch commit that introduced it, then folds it in via `--fixup` + autosquash rebase. Leaves unattributable changes alone; force-pushes only with `--force-with-lease`. |
 | `/rewrite-branch` | Rebuilds a messy branch as one clean commit per semantic unit. Saves a backup ref first and verifies the final tree is identical. |
 
 ### Pull requests & review
