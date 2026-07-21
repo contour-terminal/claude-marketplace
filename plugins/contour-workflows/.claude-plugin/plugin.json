@@ -1,7 +1,7 @@
 {
   "name": "contour-workflows",
-  "version": "1.4.0",
-  "description": "Git, review, CI, release and analysis workflow skills for C++ projects",
+  "version": "1.4.1",
+  "description": "Git, review, CI, release and analysis workflow skills and safety hooks for C++ projects",
   "author": {
     "name": "Contour Terminal",
     "url": "https://github.com/contour-terminal"
@@ -16,6 +16,7 @@
     "ci",
     "release",
     "github",
-    "gitlab"
+    "gitlab",
+    "safety"
   ]
 }

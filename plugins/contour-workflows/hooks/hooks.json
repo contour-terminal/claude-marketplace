@@ -1,6 +1,18 @@
 {
-  "description": "Runs clang-format on C/C++ files after Claude edits them, when the project defines a .clang-format style",
+  "description": "clang-format on C/C++ edits (when the project defines a .clang-format style), and a guard that blocks name-matched kills of the contour daily driver",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-contour-kill.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
