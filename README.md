@@ -117,9 +117,12 @@ before publishing.
 
 ## Hooks
 
-The plugin ships one hook: **clang-format on edit**. After Claude edits or writes a C/C++
-file, the file is reformatted in place with `clang-format`, so formatting noise never reaches
-review.
+The plugin ships two hooks.
+
+### clang-format on edit (PostToolUse)
+
+After Claude edits or writes a C/C++ file, the file is reformatted in place with
+`clang-format`, so formatting noise never reaches review.
 
 It is deliberately conservative and no-ops unless every condition holds:
 
@@ -127,9 +130,27 @@ It is deliberately conservative and no-ops unless every condition holds:
 - `clang-format` is on `PATH`,
 - a `.clang-format` file exists at or above the file's directory.
 
-So it stays silent in non-C++ repos and in C++ repos that don't define a style. To opt out
-entirely, disable the plugin's hooks in `/plugin` — or install the skills without them by
-copying the `skills/` directory into a project.
+So it stays silent in non-C++ repos and in C++ repos that don't define a style.
+
+### kill guard (PreToolUse)
+
+Blocks a `Bash` command that would kill the terminal by **name** — `pkill -x contour`,
+`pkill -f contour`, `killall contour`, or `kill $(pgrep -x contour)`. Those select processes
+by name, so a teardown aimed at a build-tree test binary
+(`out/…/src/contour/contour`) also SIGKILLs a developer's daily-driver terminal
+(`/usr/local/bin/contour`) — every process called `contour` dies at once. This actually
+happened: a session cleaning up its live-test instances SIGKILLed the running editor terminal.
+
+When it blocks, it explains the safe rewrite: kill the PID you spawned, or match a unique
+path/socket — `pkill -f "$SOCKET"`, `pkill -f 'out/clang-*/src/contour/contour'`. Kills scoped
+to a path, socket, or PID (including an explicit `pkill -f '/usr/local/bin/contour'` when you
+truly mean the installed one) pass through untouched, so it never fires in a repo that has no
+`contour` process. The protected names are data-driven — set `CLAUDE_KILL_GUARD_NAMES`
+(space-separated) to guard a different set. Like the formatter, it fails open: any parsing
+trouble allows the command rather than wedging Bash.
+
+To opt out of either hook, disable the plugin's hooks in `/plugin` — or install the skills
+without them by copying the `skills/` directory into a project.
 
 Both GitHub and GitLab are supported where it matters (`/create-pr`, `/update-pr`,
 `/address-review`, `/fix-ci`, `/work-issue`); the platform is detected by probing `gh` and
