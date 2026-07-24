@@ -1,6 +1,6 @@
 ---
 name: cpp-guidelines
-description: The C++23 coding standards and load-bearing design principles used across Contour Terminal projects — error handling with std::expected, dependency injection, data-driven design, testability, and the zero-warning policy. Load before writing, reviewing, or refactoring C++ in these repositories, or when deciding how to structure a new module, class, or fallible API.
+description: The C++23 coding standards and load-bearing design principles used across Contour Terminal projects — error handling with std::expected, dependency injection, configuration at construction time, data-driven design, testability, and the zero-warning policy. Load before writing, reviewing, or refactoring C++ in these repositories, or when deciding how to structure a new module, class, or fallible API.
 allowed-tools: Read, Grep, Glob
 ---
 
@@ -58,6 +58,60 @@ recoverable failures.
 randomness, the filesystem, the network, or any other ambient/global resource is reached
 through an interface — never through a concrete type, a singleton, or a free function with
 hidden state.
+
+### Configuration at construction time
+
+**A constructed object is a usable object.** Everything a class needs to do its job —
+collaborators, policy, tuning knobs, limits — is supplied to its constructor and is fixed
+thereafter. No `init()`/`setup()` second phase, no default constructor followed by a run of
+setters, no static knob poked from elsewhere at startup.
+
+This is the **Complete Constructor** pattern, realized through **constructor injection** and
+**immutability**; in C++ it is **RAII** generalized from resources to configuration. What it
+forbids is **two-phase initialization** and the **temporal coupling** it creates — a hidden call
+order the caller must know, and a not-yet-configured state every method must tolerate.
+
+**Configuration is not state.** This governs how an object is *set up*, not what it does
+afterwards. A setter that mutates the domain state the object exists to manage is fine — a
+cell's colour, a protocol mode toggled by an incoming escape sequence. A setter that installs a
+policy read once from the config file at startup is not, and a `static` one is the worst case.
+Ask: *would two differently-configured instances be two different objects, or one object in two
+states?* Different objects → constructor.
+
+- Omit the default constructor when there is nothing sensible to default to.
+- Configuration members are private and have no setter. Prefer this encapsulated immutability
+  over `const` members: a `const` member deletes copy- and move-assignment, quietly breaking
+  types held in containers or reassigned. Reserve `const`/reference members for value types that
+  genuinely never need assignment — and check whether the project's `.clang-tidy` enables
+  `cppcoreguidelines-avoid-const-or-ref-data-members` before reaching for them.
+- A long constructor is a fact about the *data*, not a reason to add setters: group related
+  parameters into a config struct (which data-driven design wants anyway). A builder is for
+  genuinely optional, order-independent parameters only.
+- Never wire with a global. A `static` setter is post-construction configuration plus unbounded
+  scope, no thread-safety, and state leaking between tests.
+- Fallible setup belongs in a static factory returning `std::expected<T, E>` — not in a
+  constructor that leaves the object half-built.
+
+**When you cannot.** Each of these must be documented at the declaration, with the reason:
+
+- **Live reconfiguration is the feature** — settings that must change while running, such as
+  fonts or DPI on a config reload. Weigh the price first: a mutable object typically grows a
+  mutex, a staged-vs-published copy of its state, and an apply step, all of which are pure cost
+  wherever the requirement does not actually exist.
+- **Externally-driven geometry** — window size, page size, margins. The window manager decides.
+- **Framework-mandated** — UI toolkits that default-construct types and then assign properties
+  (Qt/QML `Q_PROPERTY` being the common case) leave no choice.
+- **Documented rebinding seams** — a deliberate `setX()` that lets a collaborator move between
+  owners at runtime. The seam is the design; say so at the declaration.
+- **Cyclic wiring** — when A and B must know each other, one `attach`-style call after
+  construction is acceptable; a *sequence* of them is not.
+
+**Enforcement.** The mechanical half is automated wherever `cppcoreguidelines-pro-type-member-init`
+and `cppcoreguidelines-prefer-member-initializer` are enabled: every member initialized, in the
+member-initializer list. The design half is a review question — *how many calls must a caller
+make before this object is usable?* The answer must be zero. This is also why it pays off for
+testing: a fully-constructed object is built with test doubles in one expression, with no setup
+ritual and no half-configured state to reason about.
 
 ### Data-driven design
 

@@ -13,7 +13,7 @@
     {
       "name": "contour-workflows",
       "source": "./plugins/contour-workflows",
-      "version": "1.4.1",
+      "version": "1.5.0",
       "description": "Git, review, CI, release and analysis workflow skills and safety hooks for C++ projects",
       "category": "development",
       "keywords": [
