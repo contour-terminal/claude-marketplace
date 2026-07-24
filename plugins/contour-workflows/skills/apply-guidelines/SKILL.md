@@ -56,6 +56,30 @@ is. A `static` setter is always a finding.
 Also look for: default constructors followed by a run of setters at every call site; singletons
 (`static X* instance()`); objects that must be primed before their first real method call.
 
+**Call-site evidence — construction immediately followed by setter calls**
+
+Setters declared in *base classes* (outside the scope) are easily missed because the header
+grep only covers the scope's own files. The real violation lives at the call site:
+
+```bash
+# Find construction of heap objects whose pointer is then immediately configured
+# with setters — the hallmark of two-phase init at the call site.
+grep -rnE "make_unique<|make_shared<| new " --include='*.cpp' <scope> -A 6 \
+  | grep -B 6 "->set[A-Z]"
+```
+
+For each match:
+- Is the setter called on the *same variable* that was just constructed? If so, it's a finding.
+- Does the setter configure **policy, collaborators, or tuning** (not domain state)? If so,
+  the parameters should be constructor arguments instead.
+- Check *inherited* setters too: if class `Foo` derives from `Bar` which declares `setX()`,
+  and a call site constructs `Foo` then calls `->setX()`, that's equally a violation —
+  add the parameters to `Foo`'s constructor and have it call `Bar::setX()` in its body.
+
+This is how `SelfUnbindingChannelPty` was missed: `setWriteSink` / `setResizeSink` are
+declared on the base class `ChannelPty` (in `src/vtpty/`), outside the scope; only the call
+sites in `NativeController.cpp` and `TmuxController.cpp` showed the pattern.
+
 **Other principles**
 
 - **DI** — construction of concrete I/O, clocks, RNG, filesystem or network access inside a
