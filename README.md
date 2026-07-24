@@ -68,7 +68,8 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 
 | Skill | What it does |
 |---|---|
-| `/cpp-guidelines` | The C++23 standards and load-bearing design principles used across these projects — `std::expected` error handling, dependency injection, data-driven design, testability, zero-warning policy. Defers to each project's `.clang-tidy` and `AGENT.md`. |
+| `/cpp-guidelines` | The C++23 standards and load-bearing design principles used across these projects — `std::expected` error handling, dependency injection, configuration at construction time, data-driven design, testability, zero-warning policy. Defers to each project's `.clang-tidy` and `AGENT.md`. |
+| `/apply-guidelines [path…]` | Refactors existing code into conformance with those guidelines. Surveys and reports a ranked findings table before touching anything, then works module by module, bottom-up, building and testing between passes. Scopes to the paths you give it; defaults to the whole source tree. |
 | `/sanitize` | Builds and runs tests under ASan/UBSan/TSan, then diagnoses each report to a root cause. Uses the project's own sanitizer preset when one exists, otherwise a disposable build tree. |
 
 ### Analysis
