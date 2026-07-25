@@ -1,6 +1,6 @@
 ---
 name: apply-guidelines
-description: Refactor a C++ codebase into conformance with the project's own coding guidelines — configuration at construction time, dependency injection, data-driven design, std::expected error handling, testability, C++23 idioms. Surveys and reports findings before touching anything, then refactors module by module with a build and test run between passes. Optionally scope to one or more paths; defaults to the whole first-party source tree.
+description: Refactor a C++ codebase into conformance with the project's own coding guidelines — configuration at construction time, dependency injection, data-driven design, enum class over bool in API surface, std::expected error handling, testability, C++23 idioms. Surveys and reports findings before touching anything, then refactors module by module with a build and test run between passes. Optionally scope to one or more paths; defaults to the whole first-party source tree.
 argument-hint: "[path ...]"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 ---
@@ -80,6 +80,56 @@ This is how `SelfUnbindingChannelPty` was missed: `setWriteSink` / `setResizeSin
 declared on the base class `ChannelPty` (in `src/vtpty/`), outside the scope; only the call
 sites in `NativeController.cpp` and `TmuxController.cpp` showed the pattern.
 
+**`bool` in parameters, returns and members**
+
+```bash
+grep -rnE "\(bool [a-z_]|, *bool [a-z_]" --include='*.h' <scope>   # bool parameters
+grep -rnE "bool [a-z_]+ *= *(true|false)" --include='*.h' <scope>  # defaulted — worst case
+grep -rnE "^[[:space:]]+bool [_a-z][A-Za-z0-9_]* *(=[^;]*)?;" --include='*.h' <scope>  # members
+```
+
+Multi-line signatures hide from the first recipe when `bool` starts the line — check the
+declarations around any hit. The third recipe insists on the `;` (with an optional initializer)
+precisely to exclude member *functions* returning `bool`; drop that and roughly two thirds of the
+hits are `bool operator==`-style declarations. To confirm a suspect signature from the other side,
+grep its call sites for bare literals (`grep -rn "FunctionName(" --include='*.cpp' <scope>`); do
+not try to enumerate call sites with a `true|false` pattern, it drowns in noise.
+
+Classify with the question from the guidelines: *at the call site, can you tell what `true` means
+without opening the header?*
+
+- A `bool` **return** whose function name asks the question — `empty()`, `contains()`,
+  `is…`/`has…`/`can…`, a comparison operator, `explicit operator bool()` — is **not** a finding.
+- A `bool` return on a *fallible* operation belongs to **error handling** below, not here: the fix
+  is `std::expected<void, E>`, which carries the reason, not an enum.
+- A setter that only assigns a `bool` member: judge the **member** first. Fix the member and the
+  setter follows it; if the member is legitimately boolean, the setter is not a finding either.
+- Framework overrides and slots, concept-required predicates, and JSON/protocol/config boundaries
+  are **document**, not **fix**.
+- Two or more `bool` members in one type: where some combinations cannot legally occur they are one
+  `enum class` of states. Flag that one explicitly — collapsing combinations that were reachable
+  changes behaviour and needs a test pinning it.
+
+Rank by how much the call site loses: several `bool`s in one signature, then a defaulted `bool`
+parameter, then a single `bool` parameter, then a `bool` member, then a `bool` return.
+
+The clearest example in Contour is `TerminalSession`'s guarded-role API — four methods taking
+`(bool allow, bool remember)`, plus `executeRole(GuardedRole, bool, bool)`. The two arguments are
+adjacent, identically typed, silently exchangeable, and together they gate a permission decision:
+swapping them at one call site grants what should have been remembered and remembers what should
+have been granted, with no diagnostic. Two enums make the call sites legible and make the swap a
+compile error. Signatures like this one are where to start, not the long tail of single flags.
+
+It also shows the cost to check for first: those four are `Q_INVOKABLE`, so their real call sites
+are in QML. An enum reaches QML only once it is registered with the meta-object system (`Q_ENUM`),
+and the QML side then has to name the enumerators. That is a fine refactor, but it is a wider one
+than the header suggests — find the QML callers before promising it, and split the C++-internal
+`executeRole` from the QML-facing four if only part of it is worth doing now.
+
+Note also that a struct of public `bool` fields deserialized from a config file is the documented
+boundary case, and there are usually many of them. Convert at the boundary if anywhere; do not
+open a sweep of the config schema unless the user asked for one.
+
 **Other principles**
 
 - **DI** — construction of concrete I/O, clocks, RNG, filesystem or network access inside a
@@ -143,6 +193,19 @@ Never produce one giant diff.
    down to the constructor. This usually removes a cross-module reach as a side effect.
 5. When the parameter list gets long, group related parameters into a config struct rather than
    keeping setters — that is what data-driven design wants anyway.
+
+**Replacing a `bool` with an `enum class`** — the usual shape:
+
+1. Declare the enum next to the function it serves, or in the module's public header when several
+   functions share it. Name it after the decision, not the type.
+2. Change the signature. Do **not** add an implicit conversion, a `bool` overload, or a defaulted
+   argument to keep old call sites compiling — the whole point is that the compiler enumerates
+   them for you.
+3. Fix every call site the compiler names, mapping `true`/`false` onto the enumerators. Work
+   outward from the declaration; a wide sweep of these is still one mechanical change set.
+4. Delete any `/*flag=*/` argument comments the enum has just made redundant.
+5. Where a call site passes a runtime `bool` from config parsing or a wire format, convert *at that
+   boundary*. The boundary is the documented exception; it is not a reason to revert the signature.
 
 ## Step 4 — Verify each pass
 
