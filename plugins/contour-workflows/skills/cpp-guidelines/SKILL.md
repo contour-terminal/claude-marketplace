@@ -1,6 +1,6 @@
 ---
 name: cpp-guidelines
-description: The C++23 coding standards and load-bearing design principles used across Contour Terminal projects — error handling with std::expected, dependency injection, configuration at construction time, data-driven design, testability, and the zero-warning policy. Load before writing, reviewing, or refactoring C++ in these repositories, or when deciding how to structure a new module, class, or fallible API.
+description: The C++23 coding standards and load-bearing design principles used across Contour Terminal projects — error handling with std::expected, dependency injection, configuration at construction time, enum class over bool in API surface, data-driven design, testability, and the zero-warning policy. Load before writing, reviewing, or refactoring C++ in these repositories, or when deciding how to structure a new module, class, or fallible API.
 allowed-tools: Read, Grep, Glob
 ---
 
@@ -51,6 +51,82 @@ introduced *as the need arises* — do not invent a taxonomy up front. Chain mon
 `and_then`, `or_else`, `transform`, `transform_error` rather than nested `if`s. Reserve
 exceptions for programmer errors (precondition violation, contract misuse), not for expected,
 recoverable failures.
+
+### `enum class` over `bool`
+
+**A `bool` in an API is an anonymous enum whose two values are named after their representation
+instead of their meaning.** A `bool` parameter, return type, or data member is a finding unless one
+of the exceptions below applies; the replacement is a purpose-named `enum class`. As with the
+principles around it, depart from this only for a strong reason, stated at the declaration.
+
+The parameter case carries all three costs at once:
+
+- **The call site loses the meaning.** `renderLine(line, true, false)` tells a reader nothing, and
+  no amount of careful naming *inside* the function repairs the code that calls it.
+- **The compiler stops helping.** `bool` accepts pointers, integers and characters through implicit
+  conversion, so an overload taking `bool` can quietly swallow an argument meant for another one,
+  and two adjacent `bool` parameters can be exchanged without a diagnostic. An `enum class`
+  converts from nothing.
+- **A third case rewrites every signature.** When yes/no becomes yes/no/inherit, a `bool` forces a
+  signature change and an edit at every call site; an `enum class` gains an enumerator and `switch`
+  exhaustiveness names the places that must now handle it — the same argument data-driven design
+  makes.
+
+**The shape of the fix.**
+
+- **Name the enum after the decision, not after the type.** Prefer
+  `enum class LineWrap { Truncate, Wrap }` over `enum class BoolArg { True, False }`. Domain words
+  beat `Yes`/`No`; reserve `Yes`/`No` for a type whose own name already reads as the question —
+  `JumpOver::Yes`, `HighlightSearchMatches::No`.
+- **Give it an explicit underlying type**, `enum class LineWrap : uint8_t { Truncate, Wrap }`, in
+  line with the rest of the project's enums. Order the enumerators so the off/absent/default case
+  is zero — then a zero-initialized value still means what the `false` meant, and the ordering is
+  one less thing to get inconsistent between two enums that answer the same kind of question.
+- **Flags that genuinely combine are a bitmask, not a pile of enums.** Where several booleans are
+  truly orthogonal and every combination is legal, the answer is one bitmask type — not an
+  `enum class` per flag, and not an enum of states. Protocol-defined bit positions are the usual
+  case, and are why `cppcoreguidelines-use-enum-class` is sometimes deliberately disabled.
+- **A strong typedef is the other acceptable shape** where a value must stay boolean in behaviour
+  but distinct in type: `using Handled = boxed::boxed<bool, HandledTag>;`. Reach for it when the
+  type name supplies the meaning and the two states have no better names of their own.
+
+**Per position.**
+
+- **Parameters.** A defaulted `bool` is the worst form — `bool force = false` shows neither the
+  name nor the value at the call site, so prefer two named functions. Two adjacent `bool`
+  parameters are the next worst, being silently exchangeable; fix those signatures first.
+- **Returns.** A `bool` return is right when the function name *asks the question*: `empty()`,
+  `contains()`, `is…`/`has…`/`can…`, the comparison operators, `explicit operator bool()`. It is a
+  finding when it reports success or failure — that is `std::expected<void, E>`, which carries the
+  reason instead of discarding it — or when it selects between two named outcomes, which is an
+  `enum class`.
+- **Members.** The same test as parameters, plus one more: two or more `bool` members in a type are
+  usually a state machine hiding in flags. Where some combinations cannot legally occur, the states
+  are one `enum class`, not a set of independent switches.
+- **A surviving `bool` reads as a predicate** — `_isVisible`, not `_visible` — so the use site
+  still reads as a question.
+
+**When you cannot.** Each of these must be documented at the declaration, with the reason:
+
+- **The parameter is the property** — a setter that exists only to assign a `bool` member which
+  itself passed the test above. This is the narrow carve-out, not a general licence: if the member
+  should have been an `enum class`, so should the setter.
+- **A signature you do not own** — a framework virtual or slot, a standard concept
+  (`std::predicate`, comparators), a C callback typedef.
+- **Serialization and wire boundaries** — JSON fields, protocol flags, config keys whose external
+  representation is a boolean. Convert at the boundary and keep the `enum class` inside it.
+- **Generic code with no domain meaning** — a `bool` template argument threaded to `if constexpr`.
+
+**Enforcement.** Mostly a review question — *at the call site, can you tell what `true` means
+without opening the header?* — because the two checks that would help are usually switched off in
+a codebase that predates this principle. `bugprone-easily-swappable-parameters` flags adjacent
+parameters of convertible type, and `readability-implicit-bool-conversion` catches the conversions
+that let a `bool` overload swallow a pointer; check whether the project disables them before
+assuming a clean build means clean signatures. Enabling either on a single module is a reasonable
+first move, and what it then reports is the finding, not noise. Where a `bool` is deliberately
+kept, `bugprone-argument-comment` with `CommentBoolLiterals` (off by default, even when
+`bugprone-*` is on) turns `/*wrap=*/true` into a *checked* comment rather than a hopeful one — a
+mitigation, not a substitute for the type.
 
 ### Dependency injection
 
