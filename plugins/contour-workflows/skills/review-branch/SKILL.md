@@ -33,9 +33,17 @@ Evaluate every changed hunk against **each** of the following categories. For ea
 - Flag opportunities to replace older patterns with C++23 equivalents (e.g., `std::expected`, `std::print`, `std::ranges`, `std::flat_map`, `std::generator`, `if consteval`, deducing `this`, `std::unreachable()`, `std::to_underlying()`, multidimensional `operator[]`, `std::stacktrace`, `<format>` header, `std::move_only_function`).
 - Do **not** suggest C++23 features that would require sweeping unrelated changes; keep suggestions scoped to the diff.
 
-#### 2.3 Descriptive naming
+#### 2.3 Descriptive naming and API shape
 - Variables, functions, types, and constants should have clear, self-documenting names.
 - Flag abbreviations, single-letter names (outside tiny lambdas/loops), or misleading names.
+- Flag every new or changed `bool` parameter: a purpose-named `enum class` belongs there unless the
+  function exists only to assign a boolean property. Two `bool`s in one signature, or a defaulted
+  `bool` parameter, is a **Request changes** finding — neither is readable at the call site.
+- Flag new `bool` data members, and `bool` returns that report success or failure rather than
+  answering the question the function name asks (`std::expected<void, E>` carries the reason).
+  Predicates — `empty()`, `contains()`, `is…`/`has…`, comparison operators — are fine.
+- Check the diff's own call sites: a bare `true`/`false` argument that a reader cannot decode
+  without opening the header is the symptom, even when the signature predates the branch.
 
 #### 2.4 Test coverage of changed lines
 - For every non-trivial logic change, check whether a corresponding test exists or was added.
@@ -65,7 +73,7 @@ Provide a concise summary table:
 |---|---|---|
 | Code quality | … | … |
 | C++23 opportunities | … | … |
-| Naming | … | … |
+| Naming &amp; API shape | … | … |
 | Test coverage | … | … |
 | Performance | … | … |
 | Risk | … | … |
