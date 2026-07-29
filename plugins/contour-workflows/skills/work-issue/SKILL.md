@@ -251,7 +251,8 @@ encodes that grouping logic.
 - **Risk assessment** — Low / Medium / High with justification.
 - **Follow-ups** — adjacent problems noticed but deliberately not fixed.
 
-Then offer `/create-pr`.
+Then offer `/create-pr`, or `/draft-pr` if any follow-up above leaves the branch short of
+ready-to-merge.
 
 ## Rules
 
@@ -259,7 +260,7 @@ Then offer `/create-pr`.
 - NEVER write the fix before the failing test (bugs).
 - NEVER guess at missing requirements — ask, or state the assumption prominently.
 - NEVER expand scope beyond the issue; note adjacent problems instead of fixing them.
-- NEVER push or open a PR — that is `/create-pr`.
+- NEVER push or open a PR — that is `/create-pr` or `/draft-pr`.
 - NEVER work a closed issue without confirming with the user.
 - ALWAYS branch from a freshly fetched default branch.
 - ALWAYS run the full test suite before reporting done.

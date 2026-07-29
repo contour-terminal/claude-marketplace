@@ -53,6 +53,7 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | Skill | What it does |
 |---|---|
 | `/create-pr` | Pushes the branch and opens a PR with a changelog-quality title and a body shaped to the size of the change. |
+| `/draft-pr` | The same, but opens the PR as a draft — for early CI runs and review feedback before the branch is ready. Refuses to downgrade a PR someone already marked ready. |
 | `/update-pr` | Refreshes an existing PR's title, description, and labels after the branch has moved on. Preserves hand-written content. |
 | `/address-review` | Works through review comments one by one: investigates, applies the valid ones, and explains why the rest are wrong. Commits the result. |
 | `/review-branch` | Reviews a whole branch through a C++23 lens — idioms, const correctness, naming, coverage, performance, risk rating. |
@@ -153,7 +154,7 @@ trouble allows the command rather than wedging Bash.
 To opt out of either hook, disable the plugin's hooks in `/plugin` — or install the skills
 without them by copying the `skills/` directory into a project.
 
-Both GitHub and GitLab are supported where it matters (`/create-pr`, `/update-pr`,
+Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`, `/update-pr`,
 `/address-review`, `/fix-ci`, `/work-issue`); the platform is detected by probing `gh` and
 `glab` rather than by pattern-matching the remote URL, so self-hosted GitLab works.
 
@@ -183,8 +184,12 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/update-pr
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/my-skill/helper.sh"
    ```
-5. Add it to the table above.
-6. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
+5. If the skill opens or edits a pull/merge request, do not restate the PR procedure — read
+   `lib/pr-conventions.md` and cite its sections by heading. Platform detection, branch handling,
+   the changelog label rule, and the title/body composition rules live there so that `/create-pr`,
+   `/draft-pr`, and `/update-pr` cannot drift apart. Improvements belong in that file.
+6. Add it to the table above.
+7. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
    the entry in `.claude-plugin/marketplace.json`. The version is pinned, so users receive
    nothing until it changes.
 

@@ -10,6 +10,13 @@ allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Read, Grep, Glob
 Re-derive a PR/MR's title, body, and labels from the branch's *current* commits, and apply
 only what genuinely changed.
 
+## Step 0 — Load the conventions
+
+Read `${CLAUDE_PLUGIN_ROOT}/lib/pr-conventions.md` with the **Read** tool before anything else.
+It holds the procedure this skill shares with `/create-pr` and `/draft-pr` — platform detection,
+the changelog label rule, and the title/body composition rules — and the steps below cite its
+sections by heading rather than restating them.
+
 ## Context
 
 - Current branch: !`git branch --show-current`
@@ -17,17 +24,7 @@ only what genuinely changed.
 
 ## Step 1 — Detect the platform
 
-Extract the **host** from the remote URL (handle both `git@host:owner/repo.git` and
-`https://host/owner/repo.git` forms). Do not match on the literal string `gitlab.com` —
-most GitLab deployments are self-hosted under an unrelated hostname:
-
-1. If the host is `github.com` → use `gh`.
-2. Otherwise probe, in order, and use whichever succeeds:
-   ```
-   gh repo view --json nameWithOwner 2>/dev/null     # GitHub (incl. Enterprise)
-   glab repo view 2>/dev/null                        # GitLab (incl. self-hosted)
-   ```
-3. If neither succeeds, report which probe failed and stop rather than guessing.
+Apply *Platform detection*. Everything below uses `gh` or `glab` accordingly.
 
 ## Step 2 — Locate the PR/MR and read its current state
 
@@ -36,8 +33,8 @@ most GitLab deployments are self-hosted under an unrelated hostname:
   - **GitHub**: `gh pr view --json number,url,title,body,labels,baseRefName,state`
   - **GitLab**: `glab mr view --output json`
 
-If none is found, **stop** and suggest `/create-pr` instead. If the PR is merged or closed,
-**stop** — there is nothing useful to update.
+If none is found, **stop** and suggest `/create-pr` — or `/draft-pr`, if the branch is not ready
+for review yet. If the PR is merged or closed, **stop** — there is nothing useful to update.
 
 Record the existing title, body, labels, and base branch. The base branch comes from the
 PR itself; do not re-derive it.
@@ -55,17 +52,12 @@ already been merged or reset.
 
 ## Step 4 — Compose the updated title and body
 
-Derive a title and body from the *current* commits, using the same rules `/create-pr` uses:
+Derive a title and body from the *current* commits by applying *Composing the title and body* —
+the same rules `/create-pr` and `/draft-pr` use, so a description does not change character just
+because it was rewritten rather than written.
 
-- **Title**: under 72 characters, capitalized imperative verb (`Add`, `Fix`, `Remove`,
-  `Improve`, `Refactor`, …), describing the user-visible outcome rather than the internal
-  mechanism. No trailing period, no ticket prefix, no `feat:`/`fix:` prefix unless the
-  repository's PR history uses them. If a single commit's subject already satisfies this,
-  reuse it.
-- **Body**: let the shape follow the change — a sentence or two for a focused change; a
-  goal paragraph plus a `## Changes` bullet list for a larger branch.
-- **Never** add a "Testing" / "Test plan" / "How to test" section.
-- Do not list touched files or line counts.
+One addition specific to updating: if the PR is a draft, leave it a draft. Marking it ready is the
+author's call, not this skill's.
 
 ### Preserving human edits — important
 
@@ -84,17 +76,15 @@ authoritative unless the branch contradicts it:
 
 ## Step 5 — Recompute labels
 
-Only adjust labels the skill can justify from the diff:
+Only adjust labels the skill can justify from the diff. Apply *The changelog label rule* — both
+halves of it are live here, since an existing PR may already carry the label:
 
-1. Fetch available labels: `gh label list --json name` (GitHub) / `glab label list` (GitLab).
-2. **Changelog label**: if the repository tracks a changelog (`metainfo.xml`,
-   `*.appdata.xml`, `CHANGELOG.md`, or `NEWS`) and defines a `no changelog` label:
-   - branch does *not* touch the changelog → the label should be present;
-   - branch *does* touch it → the label should be removed if previously applied.
-3. **Never remove labels this skill did not add.** Triage labels (`bug`, `enhancement`,
-   `good first issue`), release/milestone markers, and priority labels are set by humans
-   and must be left untouched.
-4. Never create new labels.
+- branch does *not* touch the changelog → the label should be present;
+- branch *does* touch it → the label should be removed if previously applied.
+
+Its guards are what matter most in an update: **never remove labels this skill did not add**
+(triage labels like `bug`, `enhancement`, `good first issue`, plus release/milestone markers and
+priority labels are set by humans and must be left untouched), and never create new labels.
 
 ## Step 6 — Show the delta, then apply
 
@@ -122,8 +112,10 @@ Output the PR/MR URL and a one-line summary of what was updated.
 
 ## Rules
 
+- Follow *Portability rules* from the conventions file.
 - NEVER modify source files — this skill only reads git state and edits PR metadata.
 - NEVER push, commit, or otherwise alter the branch.
+- NEVER change a PR's draft status in either direction.
 - NEVER discard hand-written description content that the branch has not invalidated.
 - NEVER touch labels unrelated to the changelog rule.
 - NEVER create labels that do not already exist.
