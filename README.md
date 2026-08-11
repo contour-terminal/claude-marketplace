@@ -57,6 +57,7 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | `/update-pr` | Refreshes an existing PR's title, description, and labels after the branch has moved on. Preserves hand-written content. |
 | `/address-review` | Works through review comments one by one: investigates, applies the valid ones, and explains why the rest are wrong. Commits the result. |
 | `/review-branch` | Reviews a whole branch through a C++23 lens — idioms, const correctness, naming, coverage, performance, risk rating. |
+| `/cpp-review` | Correctness-focused review of a C++ change — a PR, a diff, or pasted code. Reads outward from the diff (ownership, threading, callers, the project's real language standard) before judging, compiles stubbed reductions to verify compile-level claims, and reports severity-tiered findings. Complements `/review-branch`, which sweeps a whole branch for idiom and conventions. |
 | `/fix-ci` | Pulls failing CI logs, diagnoses root causes, fixes them, amends, and pushes. |
 
 ### Issues
