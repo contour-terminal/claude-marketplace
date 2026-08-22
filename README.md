@@ -179,7 +179,11 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    ---
    ```
 3. Keep `allowed-tools` as tight as the skill actually needs. The subagent tool is named
-   `Agent` (not `Task`).
+   `Agent` (not `Task`). Scoped `Bash(git:*)`-style patterns are the default; bare `Bash` is
+   justified only where the command set genuinely cannot be enumerated — `/rebase` must build with
+   whatever the repository uses (`cargo`, `go`, `npm`, `make`, a CMake preset), and `/work-issue`
+   and `/fix-ci` inherit that because they invoke it. If a skill invokes another, its `allowed-tools`
+   has to cover what the callee runs, so widen deliberately and say why rather than by reflex.
 4. Bundle supporting scripts next to `SKILL.md` and reference them via
    `${CLAUDE_PLUGIN_ROOT}` — never `~/.claude/...`. Plugins run from a cache directory, so
    absolute home paths break on install:

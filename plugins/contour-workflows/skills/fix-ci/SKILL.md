@@ -72,7 +72,18 @@ Record the PR/MR number and URL for use throughout the remaining phases.
 
 ### Step 0.4 — Rebase onto the latest base
 
-Run **`/rebase --no-push`** before diagnosing anything.
+First record the branch's remote tip, **before** `/rebase` fetches anything:
+
+```
+git rev-parse --verify refs/remotes/origin/<branch>
+```
+
+Every force-push in this skill names that SHA — `git push --force-with-lease=<branch>:<sha>`. A
+bare `--force-with-lease` trusts the remote-tracking ref, which the fetch below has already
+refreshed, so it would happily agree with a colleague's push instead of refusing it. If the ref
+does not exist the branch is not published and nothing here should be pushing at all.
+
+Then run **`/rebase --no-push`** before diagnosing anything.
 
 CI judged this branch against the base it was cut from. If other work has landed since, the failure
 in front of you may already be fixed upstream, or may have been caused by what landed there —
@@ -91,7 +102,8 @@ otherwise get wrong:
   deferred it — do not just stop and leave the user diverged from `origin`, with their next
   ordinary `git push` rejected for a rewrite this skill performed and never mentioned.
 
-  Prefer pushing the rebase on its own (`git push --force-with-lease`, saying CI will re-run): it
+  Prefer pushing the rebase on its own (`git push --force-with-lease=<branch>:<sha>`, saying CI
+  will re-run): it
   keeps the conflict resolutions `/rebase` may have just made. Undo it only if the user asks, and
   then with `git reset --hard ORIG_HEAD`, which `git rebase` set to the pre-rebase tip. Never
   `git reset --hard @{u}` — on a branch created as `git checkout -b fix/123 origin/master`, which
@@ -140,7 +152,10 @@ From the CI status, identify all **failed** checks or jobs. For each failure, re
 - **Status** (failed, error, cancelled, timed out)
 - **URL** to the check run or job log
 
-If there are no failures (all checks pass), **stop** and inform the user that CI is green.
+If there are no failures (all checks pass), **stop** and inform the user that CI is green — but if
+Step 0.4 rebased, resolve the divergence it created first, exactly as that step describes. This is
+the earliest and most likely exit (the failure was already fixed on the base, which is precisely
+why the rebase helped), and leaving the branch silently rewritten here would undo the point of it.
 
 ### Step 1.3 — Fetch failure logs
 
@@ -278,13 +293,22 @@ If the project uses clang-format or similar tools, run them on modified files to
 
 ### Step 4.1 — Amend the commit
 
-**Separate any adjacent fix first.** If Step 2.4 routed a pre-existing problem into a fix, it gets
-its own commit and must not be swept into the amend — `git add <only the CI-fix paths>` rather than
-`git add -A`, commit the adjacent work separately with its own message, and only then amend. A
-`git add -A` here folds an unrelated fix into a commit that claims to be about the CI failure,
-which is exactly what *Guards* in `lib/adjacent-problems.md` forbids.
+**If Step 2.4 routed a pre-existing problem into a fix, park it before amending.** It gets its own
+commit, and the amend must not swallow it. Order matters: amend the CI fix *first*, while the
+adjacent work is out of the tree, then bring it back and commit it on top. Committing the adjacent
+work first would make it HEAD, and every `--amend` below would then land on the wrong commit.
 
-Then stage the CI fix and amend it into the appropriate commit:
+Path-level staging is not enough — the reviewer comment and the CI failure are often in the same
+file. Stage by hunk:
+
+```
+git add -p                                     # stage only the CI-fix hunks
+git stash push --keep-index -m "adjacent"      # park everything else
+```
+
+Then amend the CI fix into the commit it belongs to. In each recipe below, `git add -A` is safe
+*only* because the adjacent work is stashed; without that step it would be the folding
+*Guards* in `lib/adjacent-problems.md` forbids.
 
 1. If the branch has a **single commit** ahead of the base:
    ```
@@ -292,16 +316,16 @@ Then stage the CI fix and amend it into the appropriate commit:
    git commit --amend --no-edit
    ```
 
-2. If the branch has **multiple commits** and the fix logically belongs to a specific commit:
-   - Use `git stash` to save the fix.
-   - Use `git rebase -i` non-interactively to mark the target commit for editing:
-     ```
-     GIT_SEQUENCE_EDITOR="sed -i 's/^pick <short-sha>/edit <short-sha>/'" git rebase -i origin/<base>
-     ```
-   - Apply the stashed fix: `git stash pop`
-   - Amend: `git add -A && git commit --amend --no-edit`
-   - Continue: `git rebase --continue`
-   - If conflicts arise during rebase, resolve them.
+2. If the branch has **multiple commits** and the fix logically belongs to a specific commit,
+   use a fixup and let git place it — no interactive rebase, which is both unavailable in some
+   harnesses and easy to get wrong:
+   ```
+   git add -A
+   git commit --fixup=<target-sha>
+   GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
+   ```
+   `/absorb` does this per hunk when the fix spans several commits. If conflicts arise during the
+   rebase, resolve them.
 
 3. If the fix does not logically belong to any specific commit (e.g., a formatting fix),
    amend it into the **last** commit:
@@ -310,14 +334,23 @@ Then stage the CI fix and amend it into the appropriate commit:
    git commit --amend --no-edit
    ```
 
+Finally, restore and commit the adjacent work on its own:
+
+```
+git stash pop
+git add -A && git commit -s -m "<what the adjacent fix repairs>"
+```
+
 ### Step 4.2 — Force-push
 
 Push the amended commit(s) to the remote:
 ```
-git push --force-with-lease
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.4>
 ```
 
-Use `--force-with-lease` (not `--force`) to prevent accidentally overwriting concurrent changes by others.
+Use `--force-with-lease` (not `--force`) to prevent accidentally overwriting concurrent changes by
+others, and name the expected SHA rather than leaving it bare — Step 0.4 explains why a bare lease
+is worthless after a fetch.
 
 ## Phase 5 — Cleanup
 
@@ -373,7 +406,9 @@ For each failure:
 
 ## Rules
 
-- ALWAYS use `--force-with-lease` instead of `--force` when pushing amended commits.
+- ALWAYS use `--force-with-lease=<branch>:<sha>` with the SHA recorded in Step 0.4, never `--force`
+  and never a bare lease.
+- ALWAYS resolve the Step 0.4 divergence before any exit that does not push.
 - ALWAYS rebase onto the latest base before diagnosing — a failure judged against a stale base is
   a failure you may not have.
 - NEVER introduce behavioral changes beyond what is needed to fix the CI failure.

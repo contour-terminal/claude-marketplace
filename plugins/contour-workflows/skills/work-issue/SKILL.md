@@ -7,8 +7,8 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode,
 
 # Work an Issue
 
-Turn an issue into a well-tested change that is merged-ready and green. The workflow forks by
-issue *kind*: bugs demand a failing test before a fix; features demand a design before code.
+Turn an issue into a well-tested change that is merge-ready and green. The workflow forks by issue
+*kind*: bugs demand a failing test before a fix; features demand a design before code.
 
 ## Guiding principles
 
@@ -121,28 +121,23 @@ If `$ARGUMENTS` is empty, **stop** and ask which issue to work on.
 - **GitHub**: `gh issue view <number> --json number,title,body,labels,comments,state,url`
 - **GitLab**: `glab issue view <number> --output json`
 
-If the issue is already closed, **stop** and report it — confirm with the user before
-working on closed issues.
+If the issue is already closed, **stop** and report it — confirm with the user first.
 
-Extract: title, reported behavior, expected behavior, reproduction steps, environment
-details, acceptance criteria, labels, and any related issues or PRs.
+Extract: title, reported behavior, expected behavior, reproduction steps, environment details,
+acceptance criteria, labels, and any related issues or PRs.
 
 ### Step 1.2 — Follow embedded links
 
-Scan the body *and all comments* for links. This is often where the real specification
-lives. For each link:
+Scan the body *and all comments* for links — often where the real specification lives. For each:
 
-1. **Classify**: spec/RFC/standard · related issue · documentation · code permalink · external reference.
-2. **Fetch**:
-   - specs, RFCs, docs, blog posts → `WebFetch`
-   - related GitHub issues → `gh issue view` / `gh api`
-   - related GitLab issues → `glab issue view` / `glab api`
-   - code permalinks → `Read` the referenced file at the referenced lines
-   - unfetchable links → note them, try `WebSearch` for an alternative source
+1. **Classify**: spec/RFC · related issue · documentation · code permalink · external reference.
+2. **Fetch**: specs, RFCs, docs and blog posts with `WebFetch`; related issues with
+   `gh issue view`/`gh api` or `glab issue view`/`glab api`; code permalinks by `Read`ing the
+   referenced file at the referenced lines. Note unfetchable links and try `WebSearch` instead.
 3. **Extract** what is relevant and fold it into the understanding below.
 
-Follow links one level deep by default. Go deeper only when a linked document itself points
-at the authoritative spec.
+Follow links one level deep by default; go deeper only when a linked document itself points at the
+authoritative spec.
 
 ### Step 1.3 — Challenge the issue
 
@@ -191,24 +186,25 @@ before proceeding:
 | **feature** | "add", "support for", "it would be nice", acceptance criteria, an `enhancement` label | Phase 2F |
 | **chore** | dependency bump, CI config, docs, typo, mechanical refactor | Phase 2C |
 
-Labels are a hint, not the decision — read the content. If the issue is genuinely mixed
-(a bug report that also requests an enhancement), say so and handle the bug first, or ask
-which the user wants.
-
-If critical information is missing — no reproduction steps for a bug, no acceptance
-criteria for a vague feature — **say what is unknown rather than guessing**. For a bug
-you cannot reproduce, stop and report what you tried.
+Labels are a hint, not the decision — read the content. If the issue is genuinely mixed (a bug
+report that also requests an enhancement), say so and handle the bug first, or ask which the user
+wants. Where critical information is missing, **say what is unknown rather than guessing**; for a
+bug you cannot reproduce, stop and report what you tried.
 
 ### Step 1.5 — Create the branch
 
-1. Derive a short kebab-case description (3–5 words) from the issue title.
-2. If the working tree is dirty, stash: `git stash push --include-untracked` (tell the user).
-3. Resolve the default branch:
+1. Derive a short kebab-case description (3–5 words) from the title.
+2. If the working tree is dirty, stash it *labelled* and record which entry it is:
    ```
-   git fetch origin
-   git symbolic-ref --short refs/remotes/origin/HEAD   # strip the "origin/" prefix
+   git stash push --include-untracked -m "work-issue: auto-stash"
+   git rev-parse stash@{0}          # remember this; Phase 8 pops by identity, not by position
    ```
-   Fall back to `main`, then `master`, only if that fails.
+   Tell the user. The label and SHA matter because `/rebase` and `/fix-ci` create stashes of their
+   own later, and a bare `git stash pop` in Phase 8 takes whichever is on top — quite possibly
+   theirs.
+3. Resolve the default branch — `git fetch origin`, then
+   `git symbolic-ref --short refs/remotes/origin/HEAD`, stripping the `origin/` prefix. Fall back
+   to `main`, then `master`, only if that fails.
 4. Branch from the freshly-fetched base, prefixed by kind:
    ```
    git checkout -b fix/<issue>-<desc> origin/<base>       # bug
@@ -222,9 +218,9 @@ you cannot reproduce, stop and report what you tried.
 
 ### Step 2B.1 — Locate the code
 
-Use Grep/Glob/Read to find the code on the failing path. For a large or unfamiliar
-codebase, launch the Agent tool with `subagent_type=Explore` for broad searches, in
-parallel where the searches are independent.
+Use Grep/Glob/Read to find the code on the failing path. For a large or unfamiliar codebase,
+launch the Agent tool with `subagent_type=Explore` for broad searches, in parallel where they are
+independent.
 
 ### Step 2B.2 — Root cause analysis
 
@@ -244,11 +240,11 @@ call sites that share the flaw is usually two.
 
 ### Step 2B.4 — Write the failing test first
 
-Add a regression test that reproduces the bug, plus negative and edge cases around it.
-Follow the project's existing test conventions and place it beside comparable tests.
+Add a regression test that reproduces the bug, plus negative and edge cases around it, following
+the project's test conventions and placed beside comparable tests.
 
-**Run it and confirm it fails**, for the reason the issue describes. A test that passes
-before the fix is testing the wrong thing — go back to Step 2B.2.
+**Run it and confirm it fails**, for the reason the issue describes. A test that passes before the
+fix is testing the wrong thing — go back to Step 2B.2.
 
 ### Step 2B.5 — Apply the minimal fix
 
@@ -257,9 +253,8 @@ opportunistically.
 
 Work the approved plan one phase at a time, closing each with *The phase gate*.
 
-Adjacent bugs you notice on the way are not a distraction to be suppressed and not a licence to
-widen the branch — route them through `lib/adjacent-problems.md`, which is exactly the decision you
-are facing.
+Adjacent bugs you notice on the way are neither a distraction to suppress nor a licence to widen
+the branch — route them through `lib/adjacent-problems.md`.
 
 ### Step 2B.6 — Verify
 
@@ -286,27 +281,25 @@ Present the spec. If an open question blocks design, **ask the user** rather tha
 
 ### Step 2F.2 — Explore integration points
 
-Find, with concrete paths: the entry point where the feature is triggered; existing
-patterns for comparable features (base classes, interfaces, conventions); the test
-infrastructure and utilities available; and the components it will interact with. Use the
-Agent tool with `subagent_type=Explore` when the integration points are unclear.
+Find, with concrete paths: the entry point where the feature is triggered; patterns for comparable
+features (base classes, interfaces, conventions); the test infrastructure available; and the
+components it will interact with. Use `subagent_type=Explore` when the integration points are
+unclear.
 
 ### Step 2F.3 — Design, and get the plan approved
 
-Produce a design that follows the codebase's existing architecture. Favor dependency
-injection so the feature is testable in isolation — inject collaborators rather than
-constructing them internally or reaching for globals. Cite the file paths and line numbers
-that justify each decision.
+Produce a design that follows the codebase's existing architecture. Favor dependency injection so
+the feature is testable in isolation — inject collaborators rather than constructing them
+internally or reaching for globals. Cite the paths and line numbers justifying each decision.
 
-The design *is* the plan, so present it through `ExitPlanMode` per *The plan* above rather than as
-prose to skim past, and decompose it into phases. A feature large enough to need a design is
-almost always large enough to have more than one.
+The design *is* the plan: present it through `ExitPlanMode` per *The plan* above rather than as
+prose to skim past, decomposed into phases. A feature big enough to need a design almost always has
+more than one.
 
 ### Step 2F.4 — Implement with tests
 
-Implement the design, writing tests alongside: the happy path, edge cases, error paths, and
-any acceptance criteria stated in the issue. Match the surrounding code's idiom and comment
-density.
+Implement the design, writing tests alongside: happy path, edge cases, error paths, and any
+acceptance criteria the issue states. Match the surrounding code's idiom and comment density.
 
 Work the approved plan one phase at a time, closing each with *The phase gate*. Route anything the
 gates surface in code this feature did not touch through `lib/adjacent-problems.md`.
@@ -382,12 +375,11 @@ them read like the change somebody will review.
    the module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`, and
    `Fixes #N` for bugs, `Closes #N` for features and chores.
 
-2. **Check the shape.** One commit per semantic unit — `/commit` encodes that grouping logic,
-   `/rewrite-branch` regroups a branch whose phases were not the right seams. Phase boundaries are
-   a good default, not an obligation.
+2. **Check the shape.** One commit per semantic unit — `/rewrite-branch` regroups a branch whose
+   phases were not the right seams. Phase boundaries are a good default, not an obligation.
 
-3. **Leave adjacent fixes alone.** They keep their own commits and no issue trailer; they were
-   never what the issue asked for.
+3. **Leave adjacent fixes alone.** Their own commits, no issue trailer; they were never what the
+   issue asked for.
 
 ## Phase 6 — Open the PR/MR
 
@@ -414,26 +406,35 @@ rejected lease, stop the loop too and report.
 ### Step 7.2 — Wait for the run
 
 If Step 7.1 rebased, the branch has a new head and the provider needs a moment to register checks
-against it. Pin on that SHA — `gh pr view <number> --json headRefOid` — and wait until the run you
-read belongs to it, before `gh pr checks <number> --watch` or `glab ci status`. Watching too early
-reads the *previous* head's results: that is how a loop declares victory on a green CI never ran
-against, or dives into `/fix-ci` over a "no checks reported" that only meant "not yet".
+against it. Get that SHA and wait until the run you read belongs to it:
+
+```
+gh pr view <number> --json headRefOid                        # GitHub
+glab mr view <iid> --output json     # then match the pipeline's sha    # GitLab
+```
+
+then `gh pr checks <number> --watch` or `glab ci status`. Watching too early reads the *previous*
+head's results: that is how a loop declares victory on a green CI never ran against, or dives into
+`/fix-ci` over a "no checks reported" that only meant "not yet".
 
 CI takes minutes to hours, longer than a single command may block — poll at intervals or watch in
 the background rather than hanging one call until it is killed.
 
 ### Step 7.3 — Green? Done. Red? Fix it
 
-Invoke **`/fix-ci`**, which owns diagnosis, the fix, the amend into the right commit, and the
-`--force-with-lease` push. It classifies each failure as fixable, pre-existing, or infrastructure —
-pre-existing ones route through `lib/adjacent-problems.md`, infrastructure ones are not code
-problems and are simply reported.
+Invoke **`/fix-ci`**: it owns diagnosis, the fix, the amend into the right commit, and the leased
+force-push, and classifies each failure as fixable, pre-existing or infrastructure — pre-existing
+ones route through `lib/adjacent-problems.md`, infrastructure ones are simply reported.
 
 ### Step 7.4 — Re-gate whatever CI changed
 
 Phase 3 reviewed the branch as it stood *before* CI touched it. If `/fix-ci` changed source — as
 opposed to formatting or CI configuration — run `/simplify` and then `/code-review medium` over
 that delta, so nothing reaches the merge unreviewed.
+
+Name the range for the review — `<sha before /fix-ci ran>..HEAD` — for the same reason the phase
+gate does: without it, every CI pass re-reviews the whole branch and re-surfaces findings Phase 3
+already adjudicated.
 
 Both *apply* edits, so commit and push whatever they change before looping. An uncommitted re-gate
 fix is worse than none: Step 7.1 runs `/rebase`, which stashes a dirty tree, and CI keeps judging a
@@ -461,8 +462,8 @@ longer checks anything is worse than an honest red, because it survives review.
 - **Change** — what was modified and why.
 - **Tests** — what was added; for bugs, explicit confirmation it failed before and passes after.
 - **Review gates** — the phases, and the `/simplify` + `/code-review` runs that closed each.
-- **Adjacent problems** — every triage decision and its outcome: fixed in which commit, filed as
-  which ticket, suggested as which worktree, or declined and why.
+- **Adjacent problems** — every triage decision and outcome: fixed in which commit, filed as which
+  ticket, suggested as which worktree, or declined and why.
 - **Coverage** — coverage of the changed lines, if the project reports it.
 - **Performance impact** — hot paths, allocations, complexity; state "none" if none.
 - **Risk assessment** — Low / Medium / High with justification.
@@ -473,10 +474,10 @@ longer checks anything is worse than an honest red, because it survives review.
 If the PR was opened as a draft, say how to promote it — `gh pr ready <number>` or
 `glab mr update <iid> --ready`. Promoting is the author's call, so do not do it.
 
-**Restore the Step 1.5 stash** if you created one, and say so. Easy to forget over a workflow this
-long, and `/rebase` and `/fix-ci` push and pop stashes of their own on the way — `git stash pop` is
-last-in-first-out, so a user recovering by hand later gets somebody else's entry. If the pop
-conflicts, leave the stash intact and say where it is.
+**Restore the Step 1.5 stash** if you created one, and say so. Pop the entry whose SHA you
+recorded, not `stash@{0}`: `/rebase` and `/fix-ci` create stashes of their own along the way, and
+one of theirs may be sitting on top — `git stash pop` is last-in-first-out. If the pop conflicts,
+leave the stash intact and say where it is.
 
 ## Rules
 
@@ -491,7 +492,8 @@ conflicts, leave the stash intact and say where it is.
 - NEVER make CI green by disabling, skipping or deleting a test.
 - NEVER work a closed issue without confirming with the user.
 - ALWAYS branch from a freshly fetched default branch.
-- ALWAYS close each phase with `/simplify`, then `/code-review` naming the level, then a commit.
+- ALWAYS close each phase with `/simplify`, then the commit, then `/code-review` naming both the
+  level and `<phase-base>..HEAD` — the commit comes first so the range exists.
 - ALWAYS restore a stash you created.
 - ALWAYS run the full test suite before reporting done.
 - ALWAYS rebase onto the latest base before judging a CI result.

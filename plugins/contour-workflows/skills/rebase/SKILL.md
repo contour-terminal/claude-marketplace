@@ -28,34 +28,33 @@ still work afterwards.
 
 ## Step 0 — Pre-flight
 
-1. **Resolve the base.** If `$ARGUMENTS` names a branch, use it. Otherwise resolve the
-   repository's actual default branch from the context above — strip the `origin/` prefix, and
-   fall back to `main`, then `master`, only if that fails. Never assume the name.
+Nothing here touches the repository. Do it all before Step 1 fetches, because two of these
+recordings are only correct while no fetch has happened yet.
 
-2. **Refuse on the default branch.** Compare the current branch against the repository's *default*
-   branch, not against the base resolved in step 1 — otherwise `/rebase develop` while sitting on
-   `master` sails straight past this guard and rewrites mainline. Strip the prefix before
-   comparing: `git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/master`, while
-   `git branch --show-current` prints `master`, and comparing those two raw never matches — the
-   guard would fail open, which is the one thing it must not do. Also stop if the current branch
-   simply *is* the base. Mainline history is shared and rewriting it breaks every branch cut from
-   it; `/absorb` refuses for the same reason.
+1. **Resolve the base.** If `$ARGUMENTS` names a branch, use it. Otherwise take the repository's
+   default branch (below). Verify it exists on the remote: `git ls-remote --heads origin <base>`.
 
-3. **Deal with a dirty tree.** A rebase will not start with uncommitted changes. Stash them
-   (`git stash push --include-untracked -m "rebase: auto-stash"`), remember that you did, and tell
-   the user — silently pocketing someone's work in progress is how it gets lost.
+2. **Resolve the default branch, and refuse to rebase it.** `git symbolic-ref --short
+   refs/remotes/origin/HEAD` prints it *with* the `origin/` prefix — strip that before comparing
+   with `git branch --show-current`, or the comparison never matches and the guard fails open,
+   which is the one thing it must not do. If the ref is missing (a clone where `origin/HEAD` was
+   never set — the Context block prints `(none)`), run `git remote set-head origin -a` once and
+   retry; only if it still cannot be resolved, fall back to `main`, then `master`. Never treat
+   "cannot determine the default branch" as permission to continue.
 
-   **Restore it on every exit, not just the happy one.** This skill stops early in several places:
-   the base has not moved (Step 1), a conflict could not be resolved (Step 3), the lease was
-   rejected (Step 5). Each of those must pop the stash before returning, or the user's tree comes
-   back deceptively clean with their work parked in a stash entry they were never told to look for.
-   Cheapest way to get this right is to check whether the base moved *before* stashing — see
-   Step 1.
+   Stop if the current branch is the default branch, or is the base. Note that these are different
+   tests: `/rebase develop` while sitting on `master` passes the second and must still be refused
+   by the first. Mainline history is shared and rewriting it breaks every branch cut from it;
+   `/absorb` refuses for the same reason.
 
-4. **Note whether the branch is published, and record its remote tip.**
+3. **Decide whether commits must build individually.** A repository that expects `git bisect` to
+   work needs every commit to build, not just the tip. That choice changes which command Step 2
+   runs, so make it now — after Step 2 it cannot be applied without rebasing a second time.
+
+4. **Record whether the branch is published, and its remote tip.**
 
    ```
-   git rev-parse --verify refs/remotes/origin/<branch>     # exists? then it is published
+   git rev-parse --verify refs/remotes/origin/<branch>
    ```
 
    Test for that ref specifically — *not* for `@{upstream}`. A branch created with
@@ -63,40 +62,56 @@ still work afterwards.
    to `origin/master`: an upstream exists, but no remote branch of its own does. Treating that as
    published makes Step 5 force-push at `origin/master`.
 
-   If the ref exists, record its SHA now — **before Step 1 fetches anything**. This is the value
-   Step 5's lease depends on, and a fetch in between is exactly what would spoil it.
+   If it exists, record the SHA now. Step 5's lease depends on it, and any fetch in between —
+   Step 1's, or one the calling skill already ran — is exactly what would spoil it.
 
 ## Step 1 — Has the base actually moved?
-
-Run this check *before* Step 0.3's stash where you can — the overwhelmingly common answer is "no",
-and not stashing at all is simpler than remembering to restore.
 
 ```
 git fetch origin <base>
 git log --oneline HEAD..origin/<base>
+git merge-base HEAD origin/<base>          # record it; Step 3 needs it
 ```
 
 Fetch the **base ref only**, never a bare `git fetch origin`. A bare fetch also updates
-`refs/remotes/origin/<your-branch>`, which is precisely the ref a plain `--force-with-lease` uses
-as its expected value in Step 5 — refresh it and the lease silently starts agreeing with whatever
-a colleague just pushed, which is the one thing it exists to prevent.
+`refs/remotes/origin/<your-branch>`, which is what a plain `--force-with-lease` trusts — refresh it
+and the lease silently starts agreeing with whatever a colleague just pushed, the one thing it
+exists to prevent.
 
-Record the merge base too — `git merge-base HEAD origin/<base>` — before rebasing. Once the rebase
-starts, HEAD sits on top of `origin/<base>`, so this is the only moment the "what landed upstream"
-range can still be computed. Step 3 needs it.
+Record the merge base before rebasing. Once the rebase starts, HEAD sits on top of `origin/<base>`,
+so this is the last moment the "what landed upstream" range can be computed at all.
 
 Empty output means there is nothing to do. Say so and stop rather than performing a no-op rebase —
 rewriting commit hashes for no reason invalidates everyone's local copies and any review already
-in progress.
+in progress. Nothing has been stashed at this point, so this exit is clean.
 
 Otherwise, report what landed underneath: how many commits, and what they touched. That is context
 the user needs if a conflict shows up next.
+
+## Step 1.5 — Stash a dirty tree
+
+Only now, once a rebase is actually going to happen. A rebase will not start with uncommitted
+changes:
+
+```
+git stash push --include-untracked -m "rebase: auto-stash"
+```
+
+Remember that you did, and tell the user — silently pocketing someone's work in progress is how it
+gets lost. **Restore it on every exit from here on**, not just the happy one: a conflict that
+cannot be resolved (Step 3) and a rejected lease (Step 5) both end the run, and both must pop the
+stash first, or the tree comes back deceptively clean with the user's work parked in an entry
+nobody told them about.
 
 ## Step 2 — Rebase
 
 ```
 git rebase origin/<base>
 ```
+
+If Step 0.3 decided commits must build individually, use the `--exec` form here **instead** — see
+Step 4 — rather than the plain command; running it later would be a second rebase onto a base the
+branch already sits on.
 
 If it completes cleanly, go to Step 4.
 
@@ -156,15 +171,17 @@ callee; your test, their changed default — merge without complaint.
    so it does not fix, file or branch off for anything — that is the caller's decision, and
    `/work-issue` and `/fix-ci` both know what to do with a finding labelled adjacent.
 
-Where each commit must build on its own — a repository that expects bisectability — decide that
-*before* Step 2 and use the `--exec` form **instead of** the plain rebase there:
+Where Step 0.3 decided each commit must build on its own, Step 2 should already have used the
+`--exec` form instead of the plain rebase:
 
 ```
 git rebase origin/<base> --exec '<the project build command>'
 ```
 
-Running it here as well would be a second rebase onto a base the branch already sits on, rewriting
-every hash for nothing — the thing Step 1 refuses to do.
+Do not run it here as a follow-up: that would be a second rebase onto a base the branch already
+sits on, rewriting every hash for nothing — the thing Step 1 refuses to do. If you reached this
+step having run the plain rebase and per-commit verification was required, say so rather than
+silently reporting a success you did not verify.
 
 It stops at the first commit that fails to build, leaving you mid-rebase on a detached HEAD. That
 is the point, but it needs finishing: fix the commit and `git rebase --continue`, or
@@ -173,9 +190,12 @@ is the point, but it needs finishing: fix the commit and `git rebase --continue`
 
 ## Step 5 — Publish
 
-Skip this entirely if `$ARGUMENTS` contains `--no-push`, or if the branch has no upstream. A
-caller that is about to push a fix of its own should rebase locally and push once: every force-push
-restarts CI, and two pushes mean two full runs for one logical change.
+Skip this entirely if `$ARGUMENTS` contains `--no-push`, or if Step 0.4 found the branch
+**unpublished** — no `refs/remotes/origin/<branch>`. Do not test `@{upstream}` here either: it is
+set on branches that have no remote branch of their own, and pushing one of those with
+`push.default=upstream` aims at the base. A caller about to push a fix of its own should rebase
+locally and push once: every force-push restarts CI, and two pushes mean two full runs for one
+logical change.
 
 Otherwise:
 

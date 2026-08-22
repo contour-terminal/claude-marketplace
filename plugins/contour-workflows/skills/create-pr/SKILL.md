@@ -83,9 +83,10 @@ Output the PR/MR URL so the user can open it directly.
 
 ## Rules
 
-- Follow *Portability rules* from the conventions file — in particular: never force-push, and never
-  modify source files. This skill only performs git operations (branch, commit, push) and PR
-  creation.
+- Follow *Portability rules* from the conventions file. They scope to the operations described
+  there: this skill only performs git plumbing (branch, commit, push) and PR creation, and does
+  neither a force-push nor a source edit while doing them. A caller that rebases its own branch
+  before or after invoking this skill is not in breach — see `/rebase`.
 - NEVER create a PR from `master` or `main` — if on main with uncommitted changes, create a feature
   branch first (Step 2).
 - If a PR/MR already exists for this branch, inform the user and show the existing URL instead of

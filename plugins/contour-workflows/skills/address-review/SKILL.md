@@ -196,12 +196,21 @@ After applying all changes:
 
 ### Step 4.1 — Create the commit
 
-**Commit any adjacent fix first, on its own.** A fix made for an ADJACENT comment answers something
-the branch was not about, so folding it into the review commit hides it from the reviewer who asked
-and makes it unrevertable on its own. Stage only its paths, commit it with a message naming what it
-fixes, and keep the issue/review framing out of it.
+**Commit any adjacent fix on its own.** A fix made for an ADJACENT comment answers something the
+branch was not about, so folding it into the review commit hides it from the reviewer who asked and
+makes it unrevertable on its own.
 
-Then stage the remaining modified files and create a single commit with a descriptive message:
+Staging by path is not enough here — the "while you're here" comment is common precisely *because*
+the reviewer is already looking at a file the branch touched, so both fixes routinely live in one
+file. Stage by hunk:
+
+```
+git add -p                                   # the adjacent hunks only
+git commit -s -m "<what the adjacent fix repairs>"
+```
+
+Keep the review framing out of that message. Then stage the remaining changes and create a single
+commit with a descriptive message:
 
 ```
 git commit -s -m "$(cat <<'EOF'
