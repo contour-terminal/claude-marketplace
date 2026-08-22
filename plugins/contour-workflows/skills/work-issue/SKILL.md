@@ -2,7 +2,7 @@
 name: work-issue
 description: Take a GitHub or GitLab issue from URL or number all the way to a merged-ready pull request. Reads the issue and everything it links to, challenges whether it is worth building as written, classifies it as a bug, feature, or chore, plans it for approval, then implements it phase by phase behind /simplify and /code-review gates before opening a PR and driving CI to green. Use for "implement issue 123", "fix this bug report", or any linked issue.
 argument-hint: "<issue-number-or-url>"
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch
 ---
 
 # Work an Issue
@@ -13,7 +13,7 @@ issue *kind*: bugs demand a failing test before a fix; features demand a design 
 ## Guiding principles
 
 1. **Understand before acting.** Read the issue and everything it links to first.
-2. **Challenge before building.** An issue is a request, not a specification. A well-implemented
+2. **Challenge before building.** An issue is a request, not a specification; a well-implemented
    wrong thing is still the wrong thing.
 3. **Agree the approach before writing it.** Plan first, get approval, then implement.
 4. **Reproduce before fixing.** A bug you cannot reproduce is a bug you cannot verify fixed.
@@ -49,27 +49,26 @@ phases to have something to gate.
 
 ### The phase gate
 
-Close every phase the same way, before starting the next one:
+**Record the branch tip before starting a phase** — `git rev-parse HEAD`, the *phase base*. One
+command, and it is what lets the gate review this phase rather than everything accumulated so far.
+Then close every phase the same way, before starting the next:
 
 1. **Tests green.** The phase's own tests pass and the full suite still passes. This comes first
    because everything after it edits code, and edits on top of a red tree cannot be judged.
-2. **`/simplify`.** It reviews the changed code for reuse, duplication and altitude, and *applies*
-   its fixes rather than reporting them — so re-run the suite afterwards. It does not hunt bugs;
-   that is the next step's job.
-3. **`/code-review medium`.** Name the level explicitly: with none given it silently reuses
-   whichever ran last, and a gate whose depth depends on unrelated history is not a gate. Running
-   it *after* `/simplify` means the review reads the code that will actually be committed, and
-   spends its attention on correctness rather than cleanups already handled.
-4. **Address every finding** before the next phase begins. Findings about code this change did not
-   touch are *adjacent* — route them through `lib/adjacent-problems.md` rather than absorbing them
+2. **`/simplify`.** It reviews changed code for reuse, duplication and altitude and *applies* its
+   fixes rather than reporting them, so re-run the suite afterwards. It takes no range and scopes
+   itself, which is fine — its fixes are improvements wherever it finds them. It does not hunt
+   bugs; that is step 4's job.
+3. **Commit the phase**, with `-s` and a message describing what it did; adjacent fixes go in
+   their own commits, per the policy. This is what gives step 4 a range to name and an adjacent fix
+   somewhere to land.
+4. **`/code-review medium <phase-base>..HEAD`.** Name both. Without the level it reuses whichever
+   ran last, and a gate whose depth depends on unrelated history is not a gate; without the range
+   it resolves its own target from the branch, re-reviewing phase one once per phase.
+5. **Address every finding**, folding fixes into the phase's commits — `/absorb` puts each one on
+   the commit that introduced the line it touches. Findings about code this change did not touch
+   are *adjacent*: route them through `lib/adjacent-problems.md` rather than absorbing them
    silently or ignoring them. A finding deliberately declined is recorded, not dropped.
-5. **Commit the phase**, with `-s` and a message describing what this phase did. Adjacent fixes go
-   in their own commits, per the policy.
-
-Step 5 is not bookkeeping — it is what makes the rest of the gate work. `/simplify` and
-`/code-review` operate on *changed* code, meaning everything not yet committed, so leaving phases
-uncommitted makes every gate re-read the whole accumulated tree: phase one reviewed once per phase,
-slower and noisier as the branch grows, and an adjacent fix with nowhere to land as its own commit.
 
 **When the plan is a single phase**, the phase gate and the final pass in Phase 3 cover the same
 code. Run the gate once, at the deeper level, and skip the duplicate — reviewing a two-line diff
@@ -152,7 +151,7 @@ is worth building *as written*, and **state the verdict**. Nothing exists yet, s
 cheapest moment to change course. Work through:
 
 - **Is the problem real?** Where reproduction is cheap, reproduce it — reports are sometimes
-  misdiagnosed, already fixed, or describe intended behavior.
+  misdiagnosed, already fixed, or describe intended behaviour.
 - **Does it prescribe a solution where it should describe a problem?** Issues arrive as "add a
   `--force` flag" when the underlying need is served better another way. Name the need, then say
   whether the prescription serves it.
@@ -320,12 +319,13 @@ Full test suite green; acceptance criteria each demonstrably met.
 
 ## Phase 2C — Chore workflow
 
-Make the change directly. Keep it mechanical and reviewable. Add or update tests where the
-change has observable behavior; a dependency bump or CI tweak may legitimately have none —
-in that case verify by running the affected pipeline step locally.
+Chores get a plan first, like everything else — the rule against touching a file before approval
+has no exemption for small work. It is just proportionate: for mechanical work, a sentence and a
+single phase, which then collapses with the final pass per *The phase gate*.
 
-Chores still get a plan, but a proportionate one: for genuinely mechanical work it is a sentence
-and a single phase, which then collapses with the final pass per *The phase gate*.
+Once approved, make the change directly and keep it reviewable. Add or update tests where the
+change has observable behavior; a dependency bump or CI tweak may legitimately have none — verify
+those by running the affected pipeline step locally.
 
 ---
 
@@ -333,10 +333,9 @@ and a single phase, which then collapses with the final pass per *The phase gate
 
 Once the last phase is closed, review the branch as a whole:
 
-1. **`/simplify`** over `origin/<base>..HEAD` — name the range, since the phases are committed by
-   now and it would otherwise default to the working tree. Each per-phase run saw only its own
-   phase, so duplication spanning phases has been invisible until now; this is the only run that
-   can see it, and it is quick precisely because the per-phase runs cleared everything local.
+1. **`/simplify`.** Each per-phase run happened while later phases did not exist yet, so
+   duplication spanning phases has been invisible until now — this run is the first that can see
+   the whole shape. It is quick precisely because the per-phase runs cleared everything local.
 2. **`/code-review high origin/<base>..HEAD`**. Deeper than the per-phase `medium`: broader
    coverage, and worth the extra noise once, on the finished shape of the change.
 3. **Address every finding.** Adjacent ones route through `lib/adjacent-problems.md`. Re-run the
@@ -356,29 +355,32 @@ If the repository tracks a changelog (`metainfo.xml`, `*.appdata.xml`, `CHANGELO
 Skip for internal refactors, test-only changes, and bugs introduced *after* the most recent
 release (there is nothing for users to be told about).
 
+Commit the entry when you add it — nothing downstream sweeps up a dirty tree any more, so leaving
+it uncommitted means `/rebase` stashes it in Phase 6 and `/create-pr` pushes a PR without it.
+
 ## Phase 5 — Finalize the history
 
 The phases committed as they closed, so the branch already has commits. What is left is making
 them read like the change somebody will review.
 
 1. **Carry the issue trailer.** Exactly one commit — the one that delivers what the issue asked
-   for — closes it:
+   for — closes it, and by now that commit already exists: the phases committed as they closed, so
+   the tree is clean and there is nothing left to `git commit`. Reword that commit to carry the
+   trailer rather than trying to create a new one.
+
+   The message it should end up with:
 
    ```
-   git commit -s -m "$(cat <<'EOF'
    <module>: <summary line>
 
    <what changed and why — the root cause for a bug, the capability for a feature>
 
    Fixes #<issue-number>
-   EOF
-   )"
    ```
 
-   Use `-s` so the `Signed-off-by:` trailer comes from the committer's own git config. Use the
-   module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`. Use
-   `Fixes #N` for bugs, `Closes #N` for features and chores. If the trailer belongs on a commit
-   that already exists, `/absorb` puts it there without a manual rebase.
+   Commit with `-s` throughout so `Signed-off-by:` comes from the committer's own git config. Use
+   the module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`, and
+   `Fixes #N` for bugs, `Closes #N` for features and chores.
 
 2. **Check the shape.** One commit per semantic unit — `/commit` encodes that grouping logic,
    `/rewrite-branch` regroups a branch whose phases were not the right seams. Phase boundaries are
@@ -411,10 +413,11 @@ rejected lease, stop the loop too and report.
 
 ### Step 7.2 — Wait for the run
 
-```
-gh pr checks <number> --watch        # GitHub
-glab ci status                       # GitLab
-```
+If Step 7.1 rebased, the branch has a new head and the provider needs a moment to register checks
+against it. Pin on that SHA — `gh pr view <number> --json headRefOid` — and wait until the run you
+read belongs to it, before `gh pr checks <number> --watch` or `glab ci status`. Watching too early
+reads the *previous* head's results: that is how a loop declares victory on a green CI never ran
+against, or dives into `/fix-ci` over a "no checks reported" that only meant "not yet".
 
 CI takes minutes to hours, longer than a single command may block — poll at intervals or watch in
 the background rather than hanging one call until it is killed.
@@ -441,14 +444,11 @@ amend and force-push with a lease.
 
 The base may have moved again while CI ran — that is why this is a loop.
 
-**Stop and report** instead of looping again when:
-
-- every check is green — the goal;
-- the same check has failed three times running: the fix is not converging and a fourth attempt is
-  guessing. Say what was tried and hand it back;
-- a rebase conflict could not be resolved confidently, or the lease was rejected;
-- what remains red is infrastructure, or work the user chose to defer. Say plainly that CI is not
-  green and why, rather than implying the branch is finished.
+**Stop and report** instead of looping again when: every check is green (the goal); the same check
+has failed three times running, meaning the fix is not converging and a fourth attempt is guessing;
+a rebase conflict could not be resolved confidently or the lease was rejected; or what remains red
+is infrastructure or work the user deferred. In the last three cases say plainly that CI is not
+green and why, rather than implying the branch is finished.
 
 Never make CI green by deleting, skipping or disabling a test. A green wrung out of a suite that no
 longer checks anything is worse than an honest red, because it survives review.

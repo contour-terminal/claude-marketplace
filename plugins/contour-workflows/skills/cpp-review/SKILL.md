@@ -104,9 +104,11 @@ Format each finding as:
 
 Anchoring to `file:line` matters because the author navigates by it. A finding without a location is a finding they have to hunt for.
 
-Also mark whether each finding is about the change or about code the change did not touch. Apply
-the *Classification* vocabulary from `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` — **in-scope**
-or **adjacent** — and label the adjacent ones. This costs one word and saves the author a decision:
+Also mark whether each finding is about the change or about code the change did not touch. Read
+`${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool and apply its
+*Classification* vocabulary — **in-scope** or **adjacent** — labelling the adjacent ones. Read it
+rather than inferring from the words: the distinctions that make the label useful downstream
+(pre-existing vs. introduced, adjacent vs. blocker) are the file's, not guesses. This costs one word and saves the author a decision:
 a finding marked adjacent is one `/address-review` and `/work-issue` already know how to route,
 instead of re-deriving whether it was ever this branch's job.
 

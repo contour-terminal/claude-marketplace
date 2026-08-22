@@ -2,7 +2,7 @@
 name: fix-ci
 description: Check GitHub/GitLab CI failures, diagnose root causes, fix them, amend into the existing commit, and push.
 argument-hint: [pr-or-mr-number-or-url]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent, Skill
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill
 ---
 
 # Fix CI Failures
@@ -86,11 +86,17 @@ locally and pushing once in Phase 4 means one CI run instead of two.
 applies then. When it *does* rebase, two consequences follow that the rest of this skill would
 otherwise get wrong:
 
-- **The local branch is now ahead of the remote with rewritten hashes.** If Phase 4 ends up not
-  pushing — every failure turned out to be infrastructure — do not simply stop and leave the user
-  diverged from `origin`, with their next ordinary `git push` rejected for reasons this skill
-  caused. Either push the rebase on its own (`git push --force-with-lease`, saying that CI will
-  re-run), or `git reset --hard @{u}` to put the branch back exactly as it was. Say which you did.
+- **The local branch is now ahead of the remote with rewritten hashes.** Whenever Phase 4 ends up
+  not pushing — every failure was infrastructure, or every failure was pre-existing and the user
+  deferred it — do not just stop and leave the user diverged from `origin`, with their next
+  ordinary `git push` rejected for a rewrite this skill performed and never mentioned.
+
+  Prefer pushing the rebase on its own (`git push --force-with-lease`, saying CI will re-run): it
+  keeps the conflict resolutions `/rebase` may have just made. Undo it only if the user asks, and
+  then with `git reset --hard ORIG_HEAD`, which `git rebase` set to the pre-rebase tip. Never
+  `git reset --hard @{u}` — on a branch created as `git checkout -b fix/123 origin/master`, which
+  is exactly what `/work-issue` does, `@{u}` is `origin/master`, so that command throws the entire
+  feature branch away. Either way, say what you did.
 - **The Step 0.2 stash predates the rewrite**, so Step 5.2 pops it onto a different tree than it
   was taken from and may now conflict where it would not have. Warn on the conflict rather than
   forcing it, and leave the stash intact.
@@ -382,6 +388,8 @@ For each failure:
   than leaving the branch ahead of its remote.
 - If ALL failures are pre-existing, do not stop at the summary — route them through
   `lib/adjacent-problems.md` so the user gets options (fix now, ticket, parallel worktree) rather
-  than a blocked PR and no next step.
+  than a blocked PR and no next step. If they defer and nothing is pushed, resolve the Step 0.4
+  divergence exactly as that step describes; a deferred failure is still no reason to leave the
+  branch silently rewritten.
 - When amending commits, preserve the original commit message and author information (`--no-edit`).
 - When in doubt about whether a test failure is caused by the PR/MR changes, compare the same test on the base branch before modifying anything.

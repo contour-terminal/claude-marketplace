@@ -33,10 +33,13 @@ still work afterwards.
    fall back to `main`, then `master`, only if that fails. Never assume the name.
 
 2. **Refuse on the default branch.** Compare the current branch against the repository's *default*
-   branch (`git symbolic-ref --short refs/remotes/origin/HEAD`), not against the base resolved in
-   step 1 — otherwise `/rebase develop` while sitting on `master` sails straight past this guard
-   and rewrites mainline. Also stop if the current branch simply *is* the base. Mainline history is
-   shared and rewriting it breaks every branch cut from it; `/absorb` refuses for the same reason.
+   branch, not against the base resolved in step 1 — otherwise `/rebase develop` while sitting on
+   `master` sails straight past this guard and rewrites mainline. Strip the prefix before
+   comparing: `git symbolic-ref --short refs/remotes/origin/HEAD` prints `origin/master`, while
+   `git branch --show-current` prints `master`, and comparing those two raw never matches — the
+   guard would fail open, which is the one thing it must not do. Also stop if the current branch
+   simply *is* the base. Mainline history is shared and rewriting it breaks every branch cut from
+   it; `/absorb` refuses for the same reason.
 
 3. **Deal with a dirty tree.** A rebase will not start with uncommitted changes. Stash them
    (`git stash push --include-untracked -m "rebase: auto-stash"`), remember that you did, and tell
@@ -49,8 +52,19 @@ still work afterwards.
    Cheapest way to get this right is to check whether the base moved *before* stashing — see
    Step 1.
 
-4. **Note whether the branch is published.** `git rev-parse --abbrev-ref '@{upstream}'`. A branch
-   with an upstream will need a force-push; a purely local one will not.
+4. **Note whether the branch is published, and record its remote tip.**
+
+   ```
+   git rev-parse --verify refs/remotes/origin/<branch>     # exists? then it is published
+   ```
+
+   Test for that ref specifically — *not* for `@{upstream}`. A branch created with
+   `git checkout -b fix/123 origin/master`, which is what `/work-issue` does, has `@{upstream}` set
+   to `origin/master`: an upstream exists, but no remote branch of its own does. Treating that as
+   published makes Step 5 force-push at `origin/master`.
+
+   If the ref exists, record its SHA now — **before Step 1 fetches anything**. This is the value
+   Step 5's lease depends on, and a fetch in between is exactly what would spoil it.
 
 ## Step 1 — Has the base actually moved?
 
@@ -66,6 +80,10 @@ Fetch the **base ref only**, never a bare `git fetch origin`. A bare fetch also 
 `refs/remotes/origin/<your-branch>`, which is precisely the ref a plain `--force-with-lease` uses
 as its expected value in Step 5 — refresh it and the lease silently starts agreeing with whatever
 a colleague just pushed, which is the one thing it exists to prevent.
+
+Record the merge base too — `git merge-base HEAD origin/<base>` — before rebasing. Once the rebase
+starts, HEAD sits on top of `origin/<base>`, so this is the only moment the "what landed upstream"
+range can still be computed. Step 3 needs it.
 
 Empty output means there is nothing to do. Say so and stop rather than performing a no-op rebase —
 rewriting commit hashes for no reason invalidates everyone's local copies and any review already
@@ -90,8 +108,15 @@ own conflict on its own commit. Work the loop:
 1. `git status` to see which files conflict, and `git log -1 --format='%s' REBASE_HEAD` to see
    which of your commits is being replayed. Resolving without knowing which change you are
    replaying is guessing.
-2. Read both sides properly. `git log --oneline HEAD..origin/<base> -- <file>` shows what landed
-   upstream and why; the conflicting hunk alone rarely explains intent.
+2. Read both sides properly. Use the merge base recorded in Step 1:
+
+   ```
+   git log --oneline <merge-base>..origin/<base> -- <file>
+   ```
+
+   That shows what landed upstream and why; the conflicting hunk alone rarely explains intent. Do
+   not reach for `HEAD..origin/<base>` here — mid-rebase, HEAD already sits on top of the base, so
+   that range is empty by construction and would silently answer "nothing changed".
 3. Resolve so that **both** intents survive. Taking one side wholesale is almost always wrong — if
    upstream tightened a check and your commit added a branch, the answer is the tightened check on
    your branch too, not one or the other.
@@ -131,17 +156,20 @@ callee; your test, their changed default — merge without complaint.
    so it does not fix, file or branch off for anything — that is the caller's decision, and
    `/work-issue` and `/fix-ci` both know what to do with a finding labelled adjacent.
 
-Where each commit must build on its own — a repository that expects bisectability — verify them
-all rather than only the tip:
+Where each commit must build on its own — a repository that expects bisectability — decide that
+*before* Step 2 and use the `--exec` form **instead of** the plain rebase there:
 
 ```
 git rebase origin/<base> --exec '<the project build command>'
 ```
 
-This stops the rebase at the first commit that fails to build, leaving you mid-rebase on a detached
-HEAD. That is the point — but it needs finishing: fix the commit and `git rebase --continue`, or
+Running it here as well would be a second rebase onto a base the branch already sits on, rewriting
+every hash for nothing — the thing Step 1 refuses to do.
+
+It stops at the first commit that fails to build, leaving you mid-rebase on a detached HEAD. That
+is the point, but it needs finishing: fix the commit and `git rebase --continue`, or
 `git rebase --abort` and report. Do not push or restore the stash while a rebase is in progress;
-`git status` will tell you it still is.
+`git status` will say that it still is.
 
 ## Step 5 — Publish
 
@@ -151,16 +179,16 @@ restarts CI, and two pushes mean two full runs for one logical change.
 
 Otherwise:
 
-Record the branch's remote tip *before* any fetching (`git rev-parse refs/remotes/origin/<branch>`),
-and name it in the lease:
+Name the SHA recorded in Step 0.4 in the lease:
 
 ```
-git push --force-with-lease=<branch>:<recorded-sha>
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.4>
 ```
 
 A rebase rewrites history, so the push must be forced. The explicit expectation is what makes the
 lease mean anything: a bare `--force-with-lease` trusts the remote-tracking ref, and any fetch
-between then and now has already quietly updated it to include a colleague's push. Never `--force`.
+since — Step 1's, or one a caller ran before invoking this skill — has already quietly updated it
+to include a colleague's push. Never `--force`.
 
 **If the lease is rejected, stop.** Someone else's commits are on that branch. Escalating to
 `--force` discards precisely what the lease existed to protect. Report it and let the user decide.
@@ -181,7 +209,8 @@ Report:
 
 ## Rules
 
-- NEVER rebase the default branch.
+- NEVER rebase the default branch — compare branch names with the `origin/` prefix stripped, or
+  the guard silently never fires.
 - NEVER escalate `--force-with-lease` to `--force`.
 - NEVER resolve a conflict you cannot explain — abort and ask.
 - NEVER use `-X ours` or `-X theirs` to clear a conflict.
