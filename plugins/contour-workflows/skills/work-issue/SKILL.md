@@ -343,8 +343,8 @@ them read like the change somebody will review.
    GIT_EDITOR="cp /tmp/msg" git commit --allow-empty --fixup=reword:<target-sha>
    GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
    ```
-   `--fixup=reword:` refuses `-m`, hence the editor. Do not reach for an interactive rebase this
-   harness cannot drive.
+   `--fixup=reword:` refuses `-m`, hence the editor. Both editors must be stubbed like this: a
+   rebase that stops to ask a human is one nothing here can answer.
 
    The message it should end up with:
 

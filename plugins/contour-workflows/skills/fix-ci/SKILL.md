@@ -335,7 +335,7 @@ Amend the CI fix into the appropriate commit:
    ```
 
 2. If the branch has **multiple commits** and the fix logically belongs to a specific commit, use a
-   fixup and let git place it — no interactive rebase, which this harness cannot drive:
+   fixup and let git place it, rather than picking commits by hand:
    ```
    git add -A
    git commit --fixup=<target-sha>
