@@ -19,7 +19,10 @@ thoroughly, apply valid suggestions, and explain why invalid ones are incorrect.
 
 ### Step 0.0 — Load the adjacent-problem policy
 
-Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool. Reviewers routinely
+Read `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` with the **Read** tool — Phase 4 has to commit two
+changes separately out of one working tree, and that file says how (and why not to try splitting).
+
+Then read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md`. Reviewers routinely
 point at code near the change rather than the change itself — "while you're here, this is wrong
 too" — and that is an adjacent problem with a procedure behind it, not a judgement call to improvise.
 Step 2.4 and Step 3.2 cite its sections by heading.

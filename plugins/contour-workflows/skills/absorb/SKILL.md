@@ -24,11 +24,23 @@ than into a single commit. This is the manual equivalent of `git absorb`: per-hu
 1. **Nothing to absorb?** If there are no staged or unstaged changes to tracked files,
    report that and stop. (Untracked files can never be absorbed — see Step 2.)
 
-2. **Refuse on the default branch.** Resolve the default branch from the context above
-   (fall back to `main`, then `master`). If the current branch *is* it, stop: this skill
-   rewrites history and the mainline is shared. Recommend `/commit` instead.
+2. **Refuse on the default branch.** Apply *Force-pushing safely* → "Never rewrite the default
+   branch" from `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` (read it with the **Read** tool): strip
+   the `origin/` prefix before comparing, and stop rather than guessing if it cannot be resolved.
+   If the current branch *is* the default branch, stop — this skill rewrites history and the
+   mainline is shared. Recommend `/commit` instead.
 
-3. **Determine the absorb range.** The candidate commits are exactly those unique to this
+3. **If the branch is published, record its lease baseline.** Apply *Is this branch published?*,
+   then fetch that branch and record its tip — Step 5 needs the value, and Step 4's rebase will
+   have rewritten everything by then:
+   ```
+   git fetch origin <branch>
+   git rev-parse --verify refs/remotes/origin/<branch>
+   ```
+   If the fetch moves the ref, somebody has pushed to the branch; stop and reconcile rather than
+   absorbing on top of it.
+
+4. **Determine the absorb range.** The candidate commits are exactly those unique to this
    branch:
    ```
    git merge-base HEAD origin/<default-branch>
@@ -36,7 +48,7 @@ than into a single commit. This is the manual equivalent of `git absorb`: per-hu
    ```
    If the range is empty, stop — there is nothing on this branch to absorb into.
 
-4. **Exclude merge commits** from the candidate set (`git log --no-merges`). A fixup can
+5. **Exclude merge commits** from the candidate set (`git log --no-merges`). A fixup can
    never target a merge.
 
 5. **Foreign authorship.** If any candidate commit's author (`%ae`) differs from
@@ -125,7 +137,7 @@ git log --oneline <merge-base>..HEAD
 Absorbing rewrites every commit from the earliest target onward, so a published branch
 needs a force push:
 ```
-git push --force-with-lease=<branch>:<recorded-sha> origin <branch>
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.3> origin <branch>
 ```
 
 Only do this if the branch is **published** and is a personal topic/PR branch. Apply

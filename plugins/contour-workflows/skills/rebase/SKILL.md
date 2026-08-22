@@ -28,8 +28,9 @@ still work afterwards.
 
 ## Step 0 — Pre-flight
 
-Nothing here touches the repository. Do it all before Step 1 fetches, because two of these
-recordings are only correct while no fetch has happened yet.
+Resolve and record everything the later steps depend on. Two of these reach the remote — the
+existence check in 1 and, if needed, `git remote set-head` in 2 — but neither updates this
+branch's own tracking ref, which is what step 4's recording relies on.
 
 1. **Split `$ARGUMENTS` into flags and a base.** `--no-push` is a flag, not a branch, and callers
    pass it alone (`/rebase --no-push` is `/fix-ci`'s only invocation). Separate them — do not
@@ -70,8 +71,20 @@ recordings are only correct while no fetch has happened yet.
    Apply *Is this branch published?* from `lib/git-safety.md` — the test is the branch's own
    remote ref, never `@{upstream}`, and a fork PR's head lives on another remote entirely.
 
-   Step 1 fetches only the base, never this branch, so the ref you read here is already the tip
-   your work is based on: record it now and Step 5's lease has its expected value.
+   *Force-pushing safely* says to fetch before recording, so that the baseline is the tip your
+   work is actually based on rather than a stale local value. Do that here, for this branch only:
+
+   ```
+   git fetch origin <branch>
+   git rev-parse --verify refs/remotes/origin/<branch>
+   ```
+
+   If that fetch **moves** the ref, somebody pushed to your branch since you last looked. Stop and
+   say so rather than recording their commit as your baseline — rebasing on top of it and then
+   leasing against it would rewrite their work with the guard nodding along.
+
+   Step 1 fetches only the base and never this branch, so nothing between here and Step 5 disturbs
+   the value.
 
 ## Step 1 — Has the base actually moved?
 
@@ -162,12 +175,14 @@ callee; your test, their changed default — merge without complaint.
    to find out rather than assuming a C++ toolchain; this skill is invoked by `/work-issue` and
    `/fix-ci`, which run on any repository. Build clean — a stale cache hides exactly the
    incompatibility a rebase introduces. If the repository has nothing to build (a docs or config
-   repo), say so and go to step 2.
+   repo), say so and move on to running its tests below.
 2. **Run the full suite**, not just the tests near the conflict. The point is to catch what
    upstream changed underneath code you did not touch.
 3. **If something fails**, decide honestly whether it is your branch, the new base, or the two
-   together. Run the same test on `origin/<base>` before concluding anything — a failure that
-   reproduces there is pre-existing and is not yours to absorb into this rebase.
+   together. Run the same test against the base before concluding anything — in a scratch worktree
+   (`git worktree add ../<repo>-base origin/<base>`, removed when done), never by checking the base
+   out here: the branch has just been rewritten and a Step 1.5 stash may be outstanding. A failure
+   that reproduces there is pre-existing and is not yours to absorb into this rebase.
 
    Report it using the *Classification* vocabulary from
    `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` and stop — restoring the Step 1.5 stash on the

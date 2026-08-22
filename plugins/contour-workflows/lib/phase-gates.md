@@ -47,7 +47,10 @@ Then close every phase the same way, before starting the next:
    ran last, and a gate whose depth depends on unrelated history is not a gate; without the range
    it resolves its own target from the branch, re-reviewing phase one once per phase.
 5. **Address every finding**, folding fixes into the phase's commits — `/absorb` puts each one on
-   the commit that introduced the line it touches — then **re-run the suite**. This step edits
+   the commit that introduced the line it touches — then **re-run the suite**. `/absorb` rebases,
+   which gives every commit on the branch a new SHA: if you review again inside this phase,
+   re-record the phase base first, or the old one is orphaned and the range silently widens to
+   almost the whole branch. This step edits
    code, and `/absorb` rebases; closing a phase on an unverified tree is what step 1 exists to
    prevent, and the next phase would be built on top of it. Findings about code this change did not touch
    are *adjacent*: route them through `lib/adjacent-problems.md` rather than absorbing them

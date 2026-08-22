@@ -52,7 +52,8 @@ git status --porcelain
 If there are uncommitted changes:
 1. Stash everything: `git stash push --include-untracked -m "fix-ci: auto-stash before CI fix"`
 2. Record which entry that is — `git rev-parse stash@{0}` — per *Stashes* in `lib/git-safety.md`.
-   `/rebase` stashes too, so by Step 5.2 `stash@{0}` is often not yours.
+   Position is not identity: anything that stashes between here and Step 5.2 shifts `stash@{0}`,
+   and recording costs one command.
 3. Set an internal flag `STASH_APPLIED=true` so we can restore later.
 4. Inform the user that changes were stashed.
 
@@ -284,18 +285,27 @@ For each **fixable** failure, apply the minimal fix:
 
 After applying all fixes:
 
-1. Build and 2. test with whatever the project actually uses — a CMake preset
-(`cmake --build --preset clang-debug`, `ctest --preset=clang-debug`), `cargo test`, `npm test`,
-`go test ./...`. Read `CLAUDE.md`/`AGENT.md`, the README or the CI workflow to find out rather than
-assuming C++; `/rebase` just built this tree in Step 0.4 and describes the same discovery.
-3. All tests must pass. If any test fails:
-   - If it is related to the fix, investigate and correct.
-   - If it is a pre-existing failure, route it through `lib/adjacent-problems.md` rather than
-     only noting it. Confirm it *is* pre-existing by running the same test on `origin/<base>` in a scratch worktree
-(`git worktree add ../<repo>-base origin/<base>`), never by checking the base out here — the tree
-holds uncommitted work and a stash may be outstanding. Then —
-     Step 0.4 rebased onto the latest base, so "it failed before" needs re-checking against what
-     the branch now sits on.
+1. **Build and test with whatever the project actually uses** — a CMake preset
+   (`cmake --build --preset clang-debug`, `ctest --preset=clang-debug`), `cargo test`, `npm test`,
+   `go test ./...`. Read `CLAUDE.md`/`AGENT.md`, the README or the CI workflow to find out rather
+   than assuming C++; `/rebase` just built this tree in Step 0.4 by the same discovery.
+2. **All tests must pass.** If one fails and it is related to the fix, investigate and correct it.
+3. **If it looks pre-existing, confirm that it still is.** Step 0.4 rebased onto the latest base,
+   so "it was already failing" has to be re-checked against what the branch now sits on rather
+   than remembered from before.
+
+   Run the test against the base in a scratch worktree — never by checking the base out here,
+   since the tree holds uncommitted work and a stash may be outstanding:
+
+   ```
+   git worktree add ../<repo>-base origin/<base>
+   # run the failing test there
+   git worktree remove ../<repo>-base
+   ```
+
+   Remove it when you are done; leaving it behind makes the next `/fix-ci` run fail when
+   `git worktree add` finds the path occupied. If it does reproduce on the base, route it through
+   `lib/adjacent-problems.md` rather than only noting it.
 
 ### Step 3.3 — Run formatters if applicable
 
@@ -372,7 +382,7 @@ If `SWITCHED_BRANCH=true`:
 
 If `STASH_APPLIED=true`:
 1. Pop **the entry whose SHA you recorded in Step 0.2**, following *Stashes* in
-   `lib/git-safety.md` — not whatever is on top, since `/rebase` stashes too.
+   `lib/git-safety.md` — by identity, not by position.
 2. Inform the user that their stashed changes have been restored.
 3. If the stash pop fails (conflicts), inform the user and leave the stash intact.
 

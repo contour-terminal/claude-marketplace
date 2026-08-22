@@ -333,8 +333,18 @@ them read like the change somebody will review.
    If the trailer is missing and that commit *is* the tip, amend it by passing the whole message —
    `git commit -s --amend -m "$(cat <<'EOF' … EOF)"`, with the text below. A bare
    `git commit --amend` opens `$EDITOR` and hangs, and `--no-edit` keeps the very message you are
-   trying to replace. If the commit is not the tip, say so and use `/rewrite-branch`; do not reach
-   for an interactive rebase this harness cannot drive.
+   trying to replace. If the commit is not the tip, reword it with a fixup rather than
+   `/rewrite-branch`, which regroups the whole branch and would fold the deliberately separate
+   adjacent-fix commits back in. Write the new message to a file whose **first line is
+   `amend! <the target's current subject>`** — that header is what `--autosquash` matches on, and a
+   message file without it leaves a stray commit at the tip instead:
+   ```
+   printf 'amend! %s\n\n%s\n' "$(git log -1 --format=%s <target-sha>)" "<the full new message>" > /tmp/msg
+   GIT_EDITOR="cp /tmp/msg" git commit --allow-empty --fixup=reword:<target-sha>
+   GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
+   ```
+   `--fixup=reword:` refuses `-m`, hence the editor. Do not reach for an interactive rebase this
+   harness cannot drive.
 
    The message it should end up with:
 
@@ -411,8 +421,10 @@ itself, as *The phase gate* notes.
 Name a range for the review, for the same reason the phase gate does — without one, every CI pass
 re-reviews the whole branch and re-surfaces findings Phase 3 already adjudicated. But do not reuse
 a SHA recorded before `/fix-ci` ran: it amends and autosquashes, which orphans that commit, and a
-range anchored to it silently widens to almost the whole branch. Take the range from what `/fix-ci`
-actually changed — the files it reports, or `HEAD~1..HEAD` when it amended a single commit.
+range anchored to it silently widens to almost the whole branch. Take the range from what `/fix-ci` reports it
+changed: the commit it amended or fixed up, as `<that-commit>~1..<that-commit>`. Do not reach for
+`HEAD~1..HEAD` — when the branch had a single commit that *is* the whole branch, and when `/fix-ci`
+autosquashed into an earlier one it points at an untouched commit and misses the fix entirely.
 
 Both *apply* edits, so commit and push whatever they change before looping. An uncommitted re-gate
 fix is worse than none: Step 7.1 runs `/rebase`, which stashes a dirty tree, and CI keeps judging a

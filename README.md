@@ -198,10 +198,9 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
 6. If the skill can turn up a real problem that is not the one it was asked about — a pre-existing
    bug, a finding in untouched code, a CI job that was already red — read
    `lib/adjacent-problems.md` and cite its sections rather than inventing another private version
-   of "note it and move on". `/work-issue`, `/fix-ci` and `/address-review` act on it — they
-   commit, so they can route. `/cpp-review`, `/review-branch`, `/sanitize` and `/rebase` only use
-   its *Classification* vocabulary: they diagnose and report, so their findings arrive labelled for
-   whoever is committing. Which group a new skill joins follows from whether it commits.
+   of "note it and move on". That file's own header says which skills act on the policy and which
+   only borrow its *Classification* vocabulary; which group a new skill joins follows from whether
+   it commits.
 7. If the skill needs the branch on top of a base that may have moved, invoke `/rebase` rather than
    open-coding `git rebase` — conflict handling, verification, and the `--force-with-lease`
    semantics live there. Two git details it settles are worth knowing before you hand-roll any of
