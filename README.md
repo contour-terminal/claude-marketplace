@@ -203,9 +203,14 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    whoever is committing. Which group a new skill joins follows from whether it commits.
 7. If the skill needs the branch on top of a base that may have moved, invoke `/rebase` rather than
    open-coding `git rebase` — conflict handling, verification, and the `--force-with-lease`
-   semantics live there.
-8. Add it to the table above.
-9. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
+   semantics live there. Two git details it settles are worth knowing before you hand-roll any of
+   this: a branch made with `git checkout -b x origin/master` has an `@{upstream}` but no remote
+   branch of its own, so `@{upstream}` is the wrong test for "is this published"; and a bare
+   `--force-with-lease` is defeated by any fetch, so name the expected SHA.
+8. If the skill implements a change in stages, read `lib/phase-gates.md` for what a plan must
+   contain and how a phase is closed, rather than defining your own gate.
+9. Add it to the table above.
+10. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
    the entry in `.claude-plugin/marketplace.json`. The version is pinned, so users receive
    nothing until it changes.
 

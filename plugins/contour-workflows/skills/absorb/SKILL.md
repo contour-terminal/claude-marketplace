@@ -125,13 +125,25 @@ git log --oneline <merge-base>..HEAD
 Absorbing rewrites every commit from the earliest target onward, so a published branch
 needs a force push:
 ```
-git push --force-with-lease
+git push --force-with-lease=<branch>:<recorded-sha>
 ```
 
-Only do this if the branch already has an upstream **and** is a personal topic/PR branch.
-`--force-with-lease` aborts if someone else pushed meanwhile. **Never** a bare `--force` —
-if the lease check rejects, stop and report; someone else's work is on that branch. If the
-branch was never pushed, do not push. That is the user's call.
+Only do this if the branch is **published** and is a personal topic/PR branch. Test for its own
+remote ref, not for an upstream:
+
+```
+git rev-parse --verify refs/remotes/origin/<branch>
+```
+
+A branch created with `git checkout -b fix/123 origin/master` — what `/work-issue` does, and this
+skill now runs inside its phase gate — has `@{upstream}` set to `origin/master` while no remote
+branch of its own exists. Treating that as published aims the force-push at the mainline.
+
+Record that ref's SHA before anything fetches and name it in the lease
+(`git push --force-with-lease=<branch>:<sha>`). A bare lease trusts the remote-tracking ref, which
+any fetch has already refreshed, so it agrees with a colleague's push instead of refusing it.
+**Never** a bare `--force` — if the lease rejects, stop and report; someone else's work is on that
+branch. If the branch was never pushed, do not push. That is the user's call.
 
 ## Step 6 — Report
 
@@ -150,7 +162,9 @@ Show the final `git log --oneline <merge-base>..HEAD` and `git status --short`.
 - NEVER target a merge commit.
 - NEVER fall back to amending `HEAD` for changes you could not attribute — leave them.
 - NEVER use interactive git flags that open an editor or prompt (`git add -p`, bare `rebase -i`).
-- NEVER use bare `git push --force` — always `--force-with-lease`.
+- NEVER use bare `git push --force` — always `--force-with-lease=<branch>:<sha>`, with the SHA
+  recorded before any fetch; a bare lease is defeated by one.
+- NEVER decide a branch is published from `@{upstream}`; test `refs/remotes/origin/<branch>`.
 - NEVER skip hooks (`--no-verify`).
 - Do not stage files that likely contain secrets.
 - Commit messages are never reworded here; a fixup keeps the target's message. Use

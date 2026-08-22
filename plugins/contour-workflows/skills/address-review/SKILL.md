@@ -172,9 +172,10 @@ For each comment, arrive at one of these verdicts:
 
 For each comment with verdict ACCEPT or ACCEPT WITH MODIFICATION:
 
-1. Make the code change using the Edit tool. This covers ACCEPT and ACCEPT WITH MODIFICATION, and
-   also any **ADJACENT** comment that Step 2.4 sized as small enough to fix now — those get made
-   here too, but they are committed separately in Phase 4.
+1. Make the code change using the Edit tool. Do the ACCEPT and ACCEPT WITH MODIFICATION changes
+   first, as one pass. Then, separately, any **ADJACENT** comment Step 2.4 sized as small enough to
+   fix now — a second pass, committed on its own in Phase 4. Doing them in one pass produces a
+   mixed tree that cannot be split afterwards.
 2. If the reviewer used a suggestion block, apply it exactly (for ACCEPT) or with your modifications (for ACCEPT WITH MODIFICATION).
 3. Maintain consistent code style (run through project formatting if applicable).
 4. If a change in one location requires corresponding changes elsewhere (e.g., updating call sites, header declarations), make all necessary related changes.
@@ -200,16 +201,19 @@ After applying all changes:
 branch was not about, so folding it into the review commit hides it from the reviewer who asked and
 makes it unrevertable on its own.
 
-Staging by path is not enough here — the "while you're here" comment is common precisely *because*
-the reviewer is already looking at a file the branch touched, so both fixes routinely live in one
-file. Stage by hunk:
+Do not make both fixes and then try to split the tree: the "while you're here" comment is common
+precisely *because* the reviewer is already looking at a file the branch touched, so the two edits
+routinely share a file — and a mixed tree cannot be separated non-interactively (`git add -p`
+prompts per hunk and has no stdin here; `/absorb` bans it by name).
+
+Sequence them instead. In Step 3.1 apply the ACCEPT changes and the adjacent ones as separate
+passes, committing between:
 
 ```
-git add -p                                   # the adjacent hunks only
-git commit -s -m "<what the adjacent fix repairs>"
+git add -A && git commit -s -m "<what the adjacent fix repairs>"
 ```
 
-Keep the review framing out of that message. Then stage the remaining changes and create a single
+Keep the review framing out of that message. Then stage the review changes and create a single
 commit with a descriptive message:
 
 ```

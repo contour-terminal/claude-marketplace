@@ -72,7 +72,9 @@ Record the PR/MR number and URL for use throughout the remaining phases.
 
 ### Step 0.4 — Rebase onto the latest base
 
-First record the branch's remote tip, **before** `/rebase` fetches anything:
+First record the branch's remote tip. This has to happen **before Step 0.3's `git fetch`**, not
+just before `/rebase` — any fetch updates the tracking ref, so a SHA read afterwards may already
+include a colleague's push and the lease built from it would wave that push through:
 
 ```
 git rev-parse --verify refs/remotes/origin/<branch>
@@ -276,8 +278,10 @@ For each **fixable** failure, apply the minimal fix:
 
 After applying all fixes:
 
-1. Build: `cmake --build --preset clang-debug`
-2. Run tests: `ctest --preset=clang-debug`
+1. Build and 2. test with whatever the project actually uses — a CMake preset
+(`cmake --build --preset clang-debug`, `ctest --preset=clang-debug`), `cargo test`, `npm test`,
+`go test ./...`. Read `CLAUDE.md`/`AGENT.md`, the README or the CI workflow to find out rather than
+assuming C++; `/rebase` just built this tree in Step 0.4 and describes the same discovery.
 3. All tests must pass. If any test fails:
    - If it is related to the fix, investigate and correct.
    - If it is a pre-existing failure, route it through `lib/adjacent-problems.md` rather than
@@ -293,22 +297,26 @@ If the project uses clang-format or similar tools, run them on modified files to
 
 ### Step 4.1 — Amend the commit
 
-**If Step 2.4 routed a pre-existing problem into a fix, park it before amending.** It gets its own
-commit, and the amend must not swallow it. Order matters: amend the CI fix *first*, while the
-adjacent work is out of the tree, then bring it back and commit it on top. Committing the adjacent
-work first would make it HEAD, and every `--amend` below would then land on the wrong commit.
+**If Step 2.4 routed a pre-existing problem into a fix, do not make both fixes and then try to
+split the result.** A mixed working tree cannot be separated non-interactively: `git add -p`
+prompts for every hunk and has no stdin here (`/absorb` bans it by name for this reason), and
+`git stash push --keep-index` leaves untracked files behind, so the `git add -A` below would
+swallow a newly added file anyway.
 
-Path-level staging is not enough — the reviewer comment and the CI failure are often in the same
-file. Stage by hunk:
+Sequence the work instead — the fixes are yours to make, so make them one at a time:
 
-```
-git add -p                                     # stage only the CI-fix hunks
-git stash push --keep-index -m "adjacent"      # park everything else
-```
+1. Apply **only** the CI fix. Amend it into the commit it belongs to, using the recipes below.
+2. Then apply the adjacent fix and commit it on its own:
+   ```
+   git add -A && git commit -s -m "<what the adjacent fix repairs>"
+   ```
 
-Then amend the CI fix into the commit it belongs to. In each recipe below, `git add -A` is safe
-*only* because the adjacent work is stashed; without that step it would be the folding
-*Guards* in `lib/adjacent-problems.md` forbids.
+That order matters: committing the adjacent work first makes it HEAD, and every `--amend` below
+would then land on the wrong commit. If the adjacent fix is already sitting in the tree and lives
+in *different files*, `git stash push --include-untracked -- <its paths>` parks it cleanly; if it
+shares a file with the CI fix, revert it and redo it in step 2.
+
+Amend the CI fix into the appropriate commit:
 
 1. If the branch has a **single commit** ahead of the base:
    ```
@@ -316,30 +324,24 @@ Then amend the CI fix into the commit it belongs to. In each recipe below, `git 
    git commit --amend --no-edit
    ```
 
-2. If the branch has **multiple commits** and the fix logically belongs to a specific commit,
-   use a fixup and let git place it — no interactive rebase, which is both unavailable in some
-   harnesses and easy to get wrong:
+2. If the branch has **multiple commits** and the fix logically belongs to a specific commit, use a
+   fixup and let git place it — no interactive rebase, which this harness cannot drive:
    ```
    git add -A
    git commit --fixup=<target-sha>
    GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
    ```
-   `/absorb` does this per hunk when the fix spans several commits. If conflicts arise during the
-   rebase, resolve them.
+   The autosquash can conflict, and a failed one leaves the repository mid-rebase on a detached
+   HEAD. Resolve and `git rebase --continue`, or `git rebase --abort` and say so — but never carry
+   on to the next step while `git status` still reports a rebase in progress. `/absorb` does the
+   same thing per hunk when the fix spans several commits.
 
-3. If the fix does not logically belong to any specific commit (e.g., a formatting fix),
-   amend it into the **last** commit:
+3. If the fix does not logically belong to any specific commit (e.g. a formatting fix), amend it
+   into the **last** commit:
    ```
    git add -A
    git commit --amend --no-edit
    ```
-
-Finally, restore and commit the adjacent work on its own:
-
-```
-git stash pop
-git add -A && git commit -s -m "<what the adjacent fix repairs>"
-```
 
 ### Step 4.2 — Force-push
 
@@ -362,7 +364,11 @@ If `SWITCHED_BRANCH=true`:
 ### Step 5.2 — Restore stashed changes
 
 If `STASH_APPLIED=true`:
-1. Pop the stash: `git stash pop`
+1. Pop **the entry you created in Step 0.2**, not whatever is on top. Step 4.1 may have parked an
+   adjacent fix, and `/rebase` stashes too, so `stash@{0}` is frequently somebody else's. Record
+   `git rev-parse stash@{0}` when you push the stash in Step 0.2, then find it again with
+   `git stash list --format='%H %gd'` and pop that `stash@{n}` — `git stash pop <sha>` is not
+   valid git and errors with "is not a stash reference".
 2. Inform the user that their stashed changes have been restored.
 3. If the stash pop fails (conflicts), inform the user and leave the stash intact.
 

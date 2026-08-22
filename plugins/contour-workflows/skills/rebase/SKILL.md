@@ -31,16 +31,29 @@ still work afterwards.
 Nothing here touches the repository. Do it all before Step 1 fetches, because two of these
 recordings are only correct while no fetch has happened yet.
 
-1. **Resolve the base.** If `$ARGUMENTS` names a branch, use it. Otherwise take the repository's
-   default branch (below). Verify it exists on the remote: `git ls-remote --heads origin <base>`.
+1. **Resolve the base.** Strip flags from `$ARGUMENTS` first — `--no-push` is a flag, not a branch,
+   and callers pass it alone (`/rebase --no-push` is `/fix-ci`'s only invocation). If what remains
+   names a branch, use it; otherwise take the repository's default branch (below).
+
+   Verify it exists on the remote, and test the **output**, not the exit status:
+
+   ```
+   git ls-remote --heads origin <base>      # empty output means it does not exist
+   ```
+
+   `git ls-remote --heads origin --no-push` exits 0 with no output, so an exit-status check treats
+   a flag — or a typo, or a renamed branch — as a valid base and fails open.
 
 2. **Resolve the default branch, and refuse to rebase it.** `git symbolic-ref --short
    refs/remotes/origin/HEAD` prints it *with* the `origin/` prefix — strip that before comparing
    with `git branch --show-current`, or the comparison never matches and the guard fails open,
    which is the one thing it must not do. If the ref is missing (a clone where `origin/HEAD` was
    never set — the Context block prints `(none)`), run `git remote set-head origin -a` once and
-   retry; only if it still cannot be resolved, fall back to `main`, then `master`. Never treat
-   "cannot determine the default branch" as permission to continue.
+   retry. If it *still* cannot be resolved, **stop and ask**; do not fall back to guessing `main` or
+   `master` here. Guessing is safe when resolving a base (step 1 — a wrong guess fails loudly
+   against the remote) and unsafe here: on a repository whose default branch is `develop`, guessing
+   `main` makes the comparison `develop != main` succeed, the guard stay silent, and the shared
+   mainline get rebased and force-pushed. A guard that guesses is not a guard.
 
    Stop if the current branch is the default branch, or is the base. Note that these are different
    tests: `/rebase develop` while sitting on `master` passes the second and must still be refused
@@ -215,8 +228,12 @@ to include a colleague's push. Never `--force`.
 
 ## Step 6 — Restore and report
 
-Restore the Step 0 stash if there was one. If it conflicts, say so and leave the stash intact
-rather than forcing it.
+Check first that no rebase is still in progress — `git status` says so plainly, and a failed
+`--exec` or an abandoned conflict leaves one. Popping a stash onto a half-finished rebase only
+compounds the mess.
+
+Then restore the Step 1.5 stash if there was one. If it conflicts, say so and leave the stash
+intact rather than forcing it.
 
 Report:
 
@@ -229,8 +246,9 @@ Report:
 
 ## Rules
 
-- NEVER rebase the default branch — compare branch names with the `origin/` prefix stripped, or
-  the guard silently never fires.
+- NEVER rebase the default branch — compare branch names with the `origin/` prefix stripped, and
+  stop rather than guessing when the default branch cannot be resolved.
+- NEVER treat a zero exit from `git ls-remote` as proof a branch exists; check its output.
 - NEVER escalate `--force-with-lease` to `--force`.
 - NEVER resolve a conflict you cannot explain — abort and ask.
 - NEVER use `-X ours` or `-X theirs` to clear a conflict.

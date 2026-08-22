@@ -28,52 +28,6 @@ Turn an issue into a well-tested change that is merge-ready and green. The workf
 10. **Done means green.** The work is finished when CI is green on a real PR, not when the code
     compiles locally.
 
-## Plan approval and phase gates
-
-Two mechanisms used throughout the workflows below. They are described once here rather than
-restated in each branch.
-
-### The plan
-
-Before touching a single file, enter plan mode, write the plan, and get it approved via
-`ExitPlanMode`. Approval is what separates "this is what I intend to do" from "this is what I did";
-asking afterwards is asking the user to review a fait accompli.
-
-A plan says what will change, why that shape, and — the part the gates depend on — how the work
-**decomposes into phases**. A phase is a slice that stands on its own: it builds, its tests pass,
-and it leaves the tree in a state you would show someone. "Add the parser", "wire it into the
-config loader", "handle the error path" are phases; "write the code" is not.
-
-Plans are proportionate: a one-hunk chore is a one-sentence, one-phase plan. Do not manufacture
-phases to have something to gate.
-
-### The phase gate
-
-**Record the branch tip before starting a phase** — `git rev-parse HEAD`, the *phase base*. One
-command, and it is what lets the gate review this phase rather than everything accumulated so far.
-Then close every phase the same way, before starting the next:
-
-1. **Tests green.** The phase's own tests pass and the full suite still passes. This comes first
-   because everything after it edits code, and edits on top of a red tree cannot be judged.
-2. **`/simplify`.** It reviews changed code for reuse, duplication and altitude and *applies* its
-   fixes rather than reporting them, so re-run the suite afterwards. It takes no range and scopes
-   itself, which is fine — its fixes are improvements wherever it finds them. It does not hunt
-   bugs; that is step 4's job.
-3. **Commit the phase**, with `-s` and a message describing what it did; adjacent fixes go in
-   their own commits, per the policy. This is what gives step 4 a range to name and an adjacent fix
-   somewhere to land.
-4. **`/code-review medium <phase-base>..HEAD`.** Name both. Without the level it reuses whichever
-   ran last, and a gate whose depth depends on unrelated history is not a gate; without the range
-   it resolves its own target from the branch, re-reviewing phase one once per phase.
-5. **Address every finding**, folding fixes into the phase's commits — `/absorb` puts each one on
-   the commit that introduced the line it touches. Findings about code this change did not touch
-   are *adjacent*: route them through `lib/adjacent-problems.md` rather than absorbing them
-   silently or ignoring them. A finding deliberately declined is recorded, not dropped.
-
-**When the plan is a single phase**, the phase gate and the final pass in Phase 3 cover the same
-code. Run the gate once, at the deeper level, and skip the duplicate — reviewing a two-line diff
-twice is ceremony, not rigour.
-
 ## Context
 
 - Current branch: !`git branch --show-current`
@@ -86,10 +40,15 @@ twice is ceremony, not rigour.
 
 ### Step 0.0 — Load the shared policy
 
-Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool. It governs what to do
-with a real problem that is not the one you came for; *The phase gate* above and Phases 2, 3 and 7
-all cite it. You do not need `lib/pr-conventions.md` — `/create-pr` and `/draft-pr` read it
-themselves in Phase 6.
+Read both of these with the **Read** tool before anything else:
+
+- `${CLAUDE_PLUGIN_ROOT}/lib/phase-gates.md` — *The plan* and *The phase gate*, the two mechanisms
+  Phases 2 and 3 run on. Every step below that says "close the phase" means the gate defined there.
+- `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` — what to do with a real problem that is not the
+  one you came for. Cited by the phase gate and by Phases 2, 3 and 7.
+
+You do not need `lib/pr-conventions.md` — `/create-pr` and `/draft-pr` read it themselves in
+Phase 6.
 
 ### Step 0.1 — Detect the platform
 
@@ -194,14 +153,16 @@ bug you cannot reproduce, stop and report what you tried.
 ### Step 1.5 — Create the branch
 
 1. Derive a short kebab-case description (3–5 words) from the title.
-2. If the working tree is dirty, stash it *labelled* and record which entry it is:
+2. If the working tree is dirty, record the branch you are on, then stash it *labelled*, keeping
+   the entry's identity:
    ```
+   git branch --show-current        # remember; the stash belongs to this branch, not the new one
    git stash push --include-untracked -m "work-issue: auto-stash"
-   git rev-parse stash@{0}          # remember this; Phase 8 pops by identity, not by position
+   git rev-parse stash@{0}          # remember; Phase 8 pops by identity, not by position
    ```
-   Tell the user. The label and SHA matter because `/rebase` and `/fix-ci` create stashes of their
-   own later, and a bare `git stash pop` in Phase 8 takes whichever is on top — quite possibly
-   theirs.
+   Tell the user. All three matter: `/rebase` and `/fix-ci` create stashes of their own later, so a
+   bare `git stash pop` in Phase 8 takes whichever is on top — quite possibly theirs — and popping
+   on the feature branch would drop unrelated work into the branch under review.
 3. Resolve the default branch — `git fetch origin`, then
    `git symbolic-ref --short refs/remotes/origin/HEAD`, stripping the `origin/` prefix. Fall back
    to `main`, then `master`, only if that fails.
@@ -234,7 +195,7 @@ release note is warranted and whether other call sites share the flaw.
 ### Step 2B.3 — Plan and get approval
 
 Now, and not before: a plan written without the root cause is a guess with formatting. Follow
-*The plan* above. Cover both the regression test and the fix, since approval has to precede
+*The plan* in `lib/phase-gates.md`. Cover both the regression test and the fix, since approval has to precede
 either, and decompose into phases if the fix spans more than one coherent slice — a fix plus the
 call sites that share the flaw is usually two.
 
@@ -292,7 +253,7 @@ Produce a design that follows the codebase's existing architecture. Favor depend
 the feature is testable in isolation — inject collaborators rather than constructing them
 internally or reaching for globals. Cite the paths and line numbers justifying each decision.
 
-The design *is* the plan: present it through `ExitPlanMode` per *The plan* above rather than as
+The design *is* the plan: present it through `ExitPlanMode` per *The plan* rather than as
 prose to skim past, decomposed into phases. A feature big enough to need a design almost always has
 more than one.
 
@@ -356,10 +317,12 @@ it uncommitted means `/rebase` stashes it in Phase 6 and `/create-pr` pushes a P
 The phases committed as they closed, so the branch already has commits. What is left is making
 them read like the change somebody will review.
 
-1. **Carry the issue trailer.** Exactly one commit — the one that delivers what the issue asked
-   for — closes it, and by now that commit already exists: the phases committed as they closed, so
-   the tree is clean and there is nothing left to `git commit`. Reword that commit to carry the
-   trailer rather than trying to create a new one.
+1. **Check the issue trailer is there.** Exactly one commit — the one that delivers what the issue
+   asked for — closes it, and the phase gate put the trailer on when it committed that phase.
+   Verify it (`git log origin/<base>..HEAD`) rather than adding it now: the tree is clean, so
+   there is nothing to `git commit`, and the commit is rarely the tip any more. If it is missing
+   and the commit *is* the tip, `git commit --amend`. If it is not, say so and use
+   `/rewrite-branch` — do not reach for an interactive rebase this harness cannot drive.
 
    The message it should end up with:
 
@@ -432,9 +395,11 @@ Phase 3 reviewed the branch as it stood *before* CI touched it. If `/fix-ci` cha
 opposed to formatting or CI configuration — run `/simplify` and then `/code-review medium` over
 that delta, so nothing reaches the merge unreviewed.
 
-Name the range for the review — `<sha before /fix-ci ran>..HEAD` — for the same reason the phase
-gate does: without it, every CI pass re-reviews the whole branch and re-surfaces findings Phase 3
-already adjudicated.
+Name a range for the review, for the same reason the phase gate does — without one, every CI pass
+re-reviews the whole branch and re-surfaces findings Phase 3 already adjudicated. But do not reuse
+a SHA recorded before `/fix-ci` ran: it amends and autosquashes, which orphans that commit, and a
+range anchored to it silently widens to almost the whole branch. Take the range from what `/fix-ci`
+actually changed — the files it reports, or `HEAD~1..HEAD` when it amended a single commit.
 
 Both *apply* edits, so commit and push whatever they change before looping. An uncommitted re-gate
 fix is worse than none: Step 7.1 runs `/rebase`, which stashes a dirty tree, and CI keeps judging a
@@ -474,10 +439,18 @@ longer checks anything is worse than an honest red, because it survives review.
 If the PR was opened as a draft, say how to promote it — `gh pr ready <number>` or
 `glab mr update <iid> --ready`. Promoting is the author's call, so do not do it.
 
-**Restore the Step 1.5 stash** if you created one, and say so. Pop the entry whose SHA you
-recorded, not `stash@{0}`: `/rebase` and `/fix-ci` create stashes of their own along the way, and
-one of theirs may be sitting on top — `git stash pop` is last-in-first-out. If the pop conflicts,
-leave the stash intact and say where it is.
+**Restore the Step 1.5 stash** if you created one, and say so. Return to the branch it was taken
+from first, then pop the entry whose SHA you recorded — not `stash@{0}`, since `/rebase` and
+`/fix-ci` leave stashes of their own and pop is last-in-first-out:
+
+```
+git checkout <branch recorded in Step 1.5>
+git stash list --format='%H %gd'      # find the recorded SHA, note its stash@{n}
+git stash pop 'stash@{n}'
+```
+
+`git stash pop <sha>` is not valid git — it fails with "is not a stash reference" — so the lookup
+is not optional. If the pop conflicts, leave the stash intact and say where it is.
 
 ## Rules
 
