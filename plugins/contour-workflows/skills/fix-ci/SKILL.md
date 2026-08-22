@@ -61,7 +61,7 @@ If there are uncommitted changes:
 
 **If `$ARGUMENTS` is provided** (a PR/MR number or URL):
 1. Fetch the PR/MR metadata to find its head branch:
-   - **GitHub**: `gh pr view $ARGUMENTS --json headRefName,number,url,title,state`
+   - **GitHub**: `gh pr view $ARGUMENTS --json headRefName,baseRefName,number,url,title,state`
    - **GitLab**: `glab mr view $ARGUMENTS --output json`
 2. If the current branch is NOT the PR/MR's head branch:
    - Fetch the branch: `git fetch origin <branch>`
@@ -70,11 +70,14 @@ If there are uncommitted changes:
 
 **If `$ARGUMENTS` is NOT provided**:
 1. Find the PR/MR for the current branch:
-   - **GitHub**: `gh pr view --json number,url,title,state,headRefName 2>/dev/null`
+   - **GitHub**: `gh pr view --json number,url,title,state,headRefName,baseRefName 2>/dev/null`
    - **GitLab**: `glab mr view --output json 2>/dev/null`
 2. If no open PR/MR is found for the current branch, **stop** and inform the user.
 
-Record the PR/MR number and URL for use throughout the remaining phases.
+Record the PR/MR number, URL, **and its base branch** for use throughout the remaining phases. The
+base is the PR's target, not the repository default — a PR onto `release/1.2` must not be rebased
+onto `master`. Every `origin/<base>` below means that branch, and Step 0.4 passes it to `/rebase`
+explicitly rather than letting it fall back to the default.
 
 **Then, on either path, record the lease baseline.** Fetch the head branch first, then read its tip:
 
@@ -91,7 +94,7 @@ describes rather than assuming `origin`.
 
 ### Step 0.4 — Rebase onto the latest base
 
-Run **`/rebase --no-push`** before diagnosing anything. Every force-push below names the SHA
+Run **`/rebase <base> --no-push`** before diagnosing anything, naming the PR's base branch. Every force-push below names the SHA
 recorded in Step 0.3, with the remote and refspec spelled out, per *Force-pushing safely*.
 
 CI judged this branch against the base it was cut from. If other work has landed since, the failure
@@ -298,13 +301,14 @@ After applying all fixes:
    since the tree holds uncommitted work and a stash may be outstanding:
 
    ```
-   git worktree add ../<repo>-base origin/<base>
+   git worktree add ../<repo>-base-$$ origin/<base>
    # run the failing test there
-   git worktree remove ../<repo>-base
+   git worktree remove ../<repo>-base-$$
    ```
 
-   Remove it when you are done; leaving it behind makes the next `/fix-ci` run fail when
-   `git worktree add` finds the path occupied. If it does reproduce on the base, route it through
+   Give it a unique suffix and remove it when done. A fixed path collides both with the next
+   `/fix-ci` run and with the worktree `/rebase` creates for the same check earlier in the same
+   `/work-issue` loop pass. If it does reproduce on the base, route it through
    `lib/adjacent-problems.md` rather than only noting it.
 
 ### Step 3.3 — Run formatters if applicable
@@ -339,15 +343,18 @@ Amend the CI fix into the appropriate commit:
    ```
    git add -A
    git commit --fixup=<target-sha>
-   GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
+   git -c sequence.editor=true rebase -i --autosquash --autostash origin/<base>
    ```
+   Use that form, not `GIT_SEQUENCE_EDITOR=true git rebase --autosquash`: bare `--autosquash`
+   without `-i` is only honoured from git 2.45, and on anything older the fixup is silently not
+   squashed. `/absorb` uses the same portable form.
    Then confirm the fixup was actually consumed:
    ```
    git log --oneline origin/<base>..HEAD      # no "fixup!" subject may survive
    ```
-   A `--fixup` naming a commit outside this range — a SHA read before Step 0.4's rebase rewrote
-   the branch, or one already merged into the base — rebases cleanly and leaves the literal
-   `fixup!` commit in place, which Step 4.2 would then push to the PR.
+   A surviving `fixup!` means either the `--fixup` named a commit outside this range — a SHA read
+   before Step 0.4's rebase rewrote the branch, or one already merged into the base — or the git in
+   use predates 2.45 and ignored `--autosquash`. Step 4.2 would push it to the PR either way.
 
    The autosquash can also conflict, and a failed one leaves the repository mid-rebase on a
    detached HEAD. Resolve and `git rebase --continue`, or `git rebase --abort` and say so — but
@@ -372,6 +379,13 @@ Per *Force-pushing safely* in `lib/git-safety.md`: explicit SHA, named remote an
 rather than escalate if the lease rejects.
 
 ## Phase 5 — Cleanup
+
+**Run this phase on every exit, not only the successful one.** Per *Stashes* in
+`lib/git-safety.md`: Step 0.2 may have stashed the user's work and Step 0.3 may have moved them off
+their branch, and this skill has several early stops — CI already green (Step 1.2), `/rebase`
+stopping (Step 0.4), every failure infrastructure, every failure pre-existing and deferred. Each
+must restore the branch and the stash before returning, or the user is left somewhere they did not
+ask to be with their work parked in an entry nobody named.
 
 ### Step 5.1 — Restore original branch if switched
 

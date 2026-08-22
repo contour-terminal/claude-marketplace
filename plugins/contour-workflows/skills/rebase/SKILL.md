@@ -40,11 +40,14 @@ branch's own tracking ref, which is what step 4's recording relies on.
    Verify it exists on the remote, and test the **output**, not the exit status:
 
    ```
-   git ls-remote --heads origin <base>      # empty output means it does not exist
+   git ls-remote --heads origin 'refs/heads/<base>'      # empty output means it does not exist
    ```
 
-   `git ls-remote --heads origin --no-push` exits 0 with no output, so an exit-status check treats
-   a flag — or a typo, or a renamed branch — as a valid base and fails open.
+   Both details matter. `git ls-remote --heads origin --no-push` exits 0 with no output, so an
+   exit-status check treats a flag — or a typo — as a valid base. And a bare `<base>` matches any
+   ref whose tail equals it: asking for `master` on a remote holding `release/master` returns that
+   instead, so the check passes and the rebase then runs against a branch nobody named. The full
+   refspec matches exactly.
 
 2. **Resolve the default branch, and refuse to rebase it.** `git symbolic-ref --short
    refs/remotes/origin/HEAD` prints it *with* the `origin/` prefix — strip that before comparing
@@ -71,13 +74,18 @@ branch's own tracking ref, which is what step 4's recording relies on.
    Apply *Is this branch published?* from `lib/git-safety.md` — the test is the branch's own
    remote ref, never `@{upstream}`, and a fork PR's head lives on another remote entirely.
 
-   *Force-pushing safely* says to fetch before recording, so that the baseline is the tip your
-   work is actually based on rather than a stale local value. Do that here, for this branch only:
+   Check publication *first*, and only fetch if it is published — `git fetch origin <branch>` on a
+   branch that was never pushed is a fatal error, and `/work-issue` Phase 6 invokes this skill
+   before `/create-pr` has pushed anything:
 
    ```
+   git ls-remote --heads origin 'refs/heads/<branch>'    # empty output: unpublished, skip the rest
    git fetch origin <branch>
    git rev-parse --verify refs/remotes/origin/<branch>
    ```
+
+   *Force-pushing safely* says to fetch before recording, so that the baseline is the tip your work
+   is actually based on rather than a stale local value.
 
    If that fetch **moves** the ref, somebody pushed to your branch since you last looked. Stop and
    say so rather than recording their commit as your baseline — rebasing on top of it and then
@@ -173,14 +181,16 @@ callee; your test, their changed default — merge without complaint.
 1. **Build.** Use whatever the project actually builds with — a CMake preset, `cargo build`,
    `npm run build`, `go build`, `make`. Read `CLAUDE.md`/`AGENT.md`, the README, or the CI workflow
    to find out rather than assuming a C++ toolchain; this skill is invoked by `/work-issue` and
-   `/fix-ci`, which run on any repository. Build clean — a stale cache hides exactly the
-   incompatibility a rebase introduces. If the repository has nothing to build (a docs or config
+   `/fix-ci`, which run on any repository. Build incrementally first; fall back to a clean build if it fails, or if the rebase touched build
+   inputs, where a stale cache can hide the incompatibility. An unconditional from-scratch build is
+   the wrong default here — `/work-issue` runs this skill on every pass of its CI loop. If the repository has nothing to build (a docs or config
    repo), say so and move on to running its tests below.
 2. **Run the full suite**, not just the tests near the conflict. The point is to catch what
    upstream changed underneath code you did not touch.
 3. **If something fails**, decide honestly whether it is your branch, the new base, or the two
    together. Run the same test against the base before concluding anything — in a scratch worktree
-   (`git worktree add ../<repo>-base origin/<base>`, removed when done), never by checking the base
+   (`git worktree add ../<repo>-base-$$ origin/<base>`, removed with `git worktree remove` when done
+   — a fixed path collides with the one `/fix-ci` creates in the same `/work-issue` loop pass), never by checking the base
    out here: the branch has just been rewritten and a Step 1.5 stash may be outstanding. A failure
    that reproduces there is pre-existing and is not yours to absorb into this rebase.
 

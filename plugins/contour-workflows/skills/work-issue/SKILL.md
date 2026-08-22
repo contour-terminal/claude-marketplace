@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode,
 # Work an Issue
 
 Turn an issue into a well-tested change that is merge-ready and green. The workflow forks by issue
-*kind*: bugs demand a failing test before a fix; features demand a design before code.
+*kind*: bugs demand a failing test before a fix, features a design before code.
 
 ## Guiding principles
 
@@ -149,8 +149,8 @@ before proceeding:
 
 The phase gate stamps the issue-closing trailer on the phase that delivers what the issue asked
 for, so settle its shape now rather than at Phase 5: `Fixes #<n>` for a bug, `Closes #<n>` for a
-feature or chore, on a commit whose subject is prefixed with the module area (`vtbackend:`, `ci:`,
-`build:`) rather than `feat:`/`fix:`, committed with `-s`.
+feature or chore, on a `-s` commit whose subject carries the module area (`vtbackend:`, `ci:`,
+`build:`) rather than `feat:`/`fix:`.
 
 Labels are a hint, not the decision — read the content. If the issue is genuinely mixed (a bug
 report that also requests an enhancement), say so and handle the bug first, or ask which the user
@@ -282,12 +282,14 @@ Full test suite green; acceptance criteria each demonstrably met.
 ## Phase 2C — Chore workflow
 
 Chores get a plan first, like everything else — the rule against touching a file before approval
-has no exemption for small work. It is just proportionate: for mechanical work, a sentence and a
-single phase, which then collapses with the final pass per *The phase gate*.
+has no exemption for small work; it is just proportionate, a sentence and a single phase. Once
+approved, make the change directly and keep it reviewable. Add or update tests where the change has
+observable behavior; a dependency bump or CI tweak may legitimately have none — verify those by
+running the affected pipeline step locally.
 
-Once approved, make the change directly and keep it reviewable. Add or update tests where the
-change has observable behavior; a dependency bump or CI tweak may legitimately have none — verify
-those by running the affected pipeline step locally.
+Then close it with *The phase gate*, exactly as 2B and 2F do. A chore is usually one phase, so that
+gate is where the work gets reviewed *and committed*: Phase 3 is skipped for a single-phase plan and
+Phase 5 assumes commits exist, so skipping it leaves the chore uncommitted at `/create-pr`.
 
 ---
 
@@ -335,16 +337,23 @@ them read like the change somebody will review.
    `git commit --amend` opens `$EDITOR` and hangs, and `--no-edit` keeps the very message you are
    trying to replace. If the commit is not the tip, reword it with a fixup rather than
    `/rewrite-branch`, which regroups the whole branch and would fold the deliberately separate
-   adjacent-fix commits back in. Write the new message to a file whose **first line is
-   `amend! <the target's current subject>`** — that header is what `--autosquash` matches on, and a
-   message file without it leaves a stray commit at the tip instead:
+   adjacent-fix commits back in:
+
    ```
-   printf 'amend! %s\n\n%s\n' "$(git log -1 --format=%s <target-sha>)" "<the full new message>" > /tmp/msg
-   GIT_EDITOR="cp /tmp/msg" git commit --allow-empty --fixup=reword:<target-sha>
-   GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
+   TARGET=<the delivering commit>
+   { printf 'amend! %s\n\n' "$(git log -1 --format=%s $TARGET)"
+     printf '<the full new message>\n\n'
+     git log -1 --format='%(trailers)' $TARGET; } > /tmp/msg
+   GIT_EDITOR="cp /tmp/msg" git commit --allow-empty --fixup=reword:$TARGET
+   git -c sequence.editor=true rebase -i --autosquash --keep-base origin/<base>
    ```
-   `--fixup=reword:` refuses `-m`, hence the editor. Both editors must be stubbed like this: a
-   rebase that stops to ask a human is one nothing here can answer.
+
+   Three details silently break it if dropped. The `amend! <target subject>` first line is what
+   `--autosquash` matches — without it the reword is left as a stray commit at the tip. The
+   original trailers must be carried over, since the editor stub replaces the whole message and
+   `-s` cannot restore `Signed-off-by:` afterwards; on a repo with a DCO check, losing it fails CI.
+   And `--keep-base` confines this to the autosquash, instead of replaying the branch onto a base
+   that may have moved — an unverified rebase, one phase before Phase 6 does it properly.
 
    The message it should end up with:
 
@@ -391,7 +400,7 @@ rejected lease, stop the loop too and report.
 ### Step 7.2 — Wait for the run
 
 If Step 7.1 rebased, the branch has a new head and the provider needs a moment to register checks
-against it. Get that SHA and wait until the run you read belongs to it:
+against it. Get that SHA and wait for a run belonging to it:
 
 ```
 gh pr view <number> --json headRefOid                        # GitHub
@@ -418,11 +427,13 @@ opposed to formatting or CI configuration — run `/simplify`, then `/code-revie
 delta, so nothing reaches the merge unreviewed. Only the review takes a range; `/simplify` scopes
 itself, as *The phase gate* notes.
 
-Name a range for the review, for the same reason the phase gate does — without one, every CI pass
-re-reviews the whole branch and re-surfaces findings Phase 3 already adjudicated. But do not reuse
+Name a range, for the same reason the phase gate does: without one every CI pass re-reviews the
+whole branch and re-surfaces findings Phase 3 already adjudicated. But do not reuse
 a SHA recorded before `/fix-ci` ran: it amends and autosquashes, which orphans that commit, and a
-range anchored to it silently widens to almost the whole branch. Take the range from what `/fix-ci` reports it
-changed: the commit it amended or fixed up, as `<that-commit>~1..<that-commit>`. Do not reach for
+range anchored to it silently widens to almost the whole branch. Take it from what `/fix-ci` reports it changed, but
+re-resolve the SHA afterwards: if it used a fixup, the one in its report is pre-autosquash and no
+longer reachable. Find the commit by subject in `git log origin/<base>..HEAD`, then use
+`<that-commit>~1..<that-commit>`. Do not reach for
 `HEAD~1..HEAD` — when the branch had a single commit that *is* the whole branch, and when `/fix-ci`
 autosquashed into an earlier one it points at an untouched commit and misses the fix entirely.
 
@@ -454,19 +465,16 @@ longer checks anything is worse than an honest red, because it survives review.
 - **Review gates** — the phases, and the `/simplify` + `/code-review` runs that closed each.
 - **Adjacent problems** — every triage decision and outcome: fixed in which commit, filed as which
   ticket, suggested as which worktree, or declined and why.
-- **Coverage** — coverage of the changed lines, if the project reports it.
-- **Performance impact** — hot paths, allocations, complexity; state "none" if none.
+- **Coverage** — of the changed lines, if the project reports it.
+- **Performance impact** — hot paths, allocations, complexity; "none" if none.
 - **Risk assessment** — Low / Medium / High with justification.
 - **Pull request** — URL, and the final CI status.
-- **Rebases** — how many, and what landed underneath the branch on the way.
+- **Rebases** — how many, and what landed underneath on the way.
 - **Follow-ups** — anything left deliberately undone.
 
 If the PR was opened as a draft, say how to promote it — `gh pr ready <number>` or
-`glab mr update <iid> --ready`. Promoting is the author's call, so do not do it.
-
-**Restore the Step 1.5 stash** if you created one, and say so — following *Stashes* in
-`lib/git-safety.md`, which covers returning to the original branch first and popping by identity
-rather than position.
+`glab mr update <iid> --ready`; promoting is the author's call. And **restore the Step 1.5 stash**
+if you created one, per *Stashes* in `lib/git-safety.md`: original branch first, pop by identity.
 
 ## Rules
 

@@ -39,8 +39,9 @@ Then close every phase the same way, before starting the next:
    own commits, per the policy. This is what gives step 4 a range to name and an adjacent fix
    somewhere to land. If this is the phase that delivers the thing the work was
    commissioned for, put any issue-closing trailer on **now**, in the shape the calling skill
-   specifies. Adding it later means rewording a
-   commit that is no longer the tip, and there is no clean non-interactive way to do that.
+   specifies. Adding it later means rewording a commit that is
+   no longer the tip — recoverable with an `amend!` fixup and an autosquash, but fiddly enough
+   that the calling skill should document the recipe rather than leave it to be improvised.
 4. **`/code-review <level> <phase-base>..HEAD`** — `medium` for a phase of a multi-phase plan,
    and the calling skill's final-pass level when the plan turned out to be a single phase, so that
    the shortcut below is actually reachable. Name both. Without the level it reuses whichever

@@ -51,7 +51,7 @@ than into a single commit. This is the manual equivalent of `git absorb`: per-hu
 5. **Exclude merge commits** from the candidate set (`git log --no-merges`). A fixup can
    never target a merge.
 
-5. **Foreign authorship.** If any candidate commit's author (`%ae`) differs from
+6. **Foreign authorship.** If any candidate commit's author (`%ae`) differs from
    `git config user.email`, note it now; you will need to warn before targeting it.
 
 ## Step 1 — Map each hunk to its base commit

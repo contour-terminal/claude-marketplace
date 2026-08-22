@@ -98,9 +98,12 @@ rebase is still in progress before popping at all — `git status` says so plain
 
 ## Splitting a mixed working tree
 
-You cannot, not here. `git add -p` prompts for every hunk and has no stdin in this harness, and
-`git stash push --keep-index` leaves untracked files behind, so a following `git add -A` swallows
-any newly added file anyway.
+Not by hand, and not with the obvious tools. `git add -p` prompts for every hunk and has no stdin
+here, and `git stash push --keep-index` leaves untracked files behind, so a following `git add -A`
+swallows any newly added file anyway. It *is* possible to stage a computed subset non-interactively
+by filtering a patch and applying it with `git apply --cached`, which is what `/absorb` does when it
+has a machine-derived hunk-to-commit mapping — but that needs the mapping first, and a skill
+separating two changes it just made by hand has no such thing.
 
 So do not create a mixed tree and then try to separate it. **Sequence the work**: make one fix,
 commit it, then make the other. The edits are yours to make, so make them one at a time.
