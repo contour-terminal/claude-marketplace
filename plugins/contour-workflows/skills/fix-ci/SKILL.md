@@ -2,7 +2,7 @@
 name: fix-ci
 description: Check GitHub/GitLab CI failures, diagnose root causes, fix them, amend into the existing commit, and push.
 argument-hint: [pr-or-mr-number-or-url]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent, Skill
 ---
 
 # Fix CI Failures
@@ -15,6 +15,12 @@ Diagnose and fix CI failures on a pull/merge request. Amend the fix into the exi
 - Repository remote: !`git remote get-url origin 2>/dev/null || echo "(no remote)"`
 
 ## Phase 0 — Setup and Branch Preparation
+
+### Step 0.0 — Load the adjacent-problem policy
+
+Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool. CI is where problems
+that are not yours surface most bluntly — a job that was already red before this branch existed
+still blocks the merge. Phase 2 and Phase 4 cite its sections by heading.
 
 ### Step 0.1 — Determine the hosting platform
 
@@ -63,6 +69,21 @@ If there are uncommitted changes:
 2. If no open PR/MR is found for the current branch, **stop** and inform the user.
 
 Record the PR/MR number and URL for use throughout the remaining phases.
+
+### Step 0.4 — Rebase onto the latest base
+
+Run **`/rebase --no-push`** before diagnosing anything.
+
+CI judged this branch against the base it was cut from. If other work has landed since, the failure
+in front of you may already be fixed upstream, or may have been caused by what landed there —
+diagnosing before syncing wastes the analysis, and the local build and test run in Phase 3 proves
+nothing if it runs against a stale tree.
+
+`--no-push` matters here: this skill is about to amend a fix and force-push anyway, so rebasing
+locally and pushing once in Phase 4 means one CI run instead of two.
+
+`/rebase` stops by itself when the base has not moved. If it reports an unresolvable conflict,
+stop — that conflict, not the CI failure, is now the thing to deal with.
 
 ## Phase 1 — Identify CI Failures
 
@@ -193,7 +214,14 @@ Classify each failure:
 - **Pre-existing**: The failure exists on the base branch too — not caused by this PR/MR.
 - **Infrastructure**: Flaky test, timeout, or CI environment issue — not a code problem.
 
-For **pre-existing** and **infrastructure** failures, note them in the report but do not attempt to fix them.
+**Infrastructure** failures are not code problems — note them in the report and leave them alone.
+They never enter triage; there is nothing to fix, ticket, or branch off for.
+
+**Pre-existing** failures do enter triage. Apply *Classification*, *Sizing* and *Routing* from
+`lib/adjacent-problems.md`: small and clearly correct — fix it now in its own commit, separate from
+the commits being amended; larger or carrying a design decision — ask, then file a ticket carrying
+the job log and the diagnosis, or suggest a parallel worktree. This matters because a pre-existing
+failure still blocks the merge: reporting it and stopping leaves the PR stuck with no route out.
 
 ## Phase 3 — Implement Fixes
 
@@ -217,7 +245,10 @@ After applying all fixes:
 2. Run tests: `ctest --preset=clang-debug`
 3. All tests must pass. If any test fails:
    - If it is related to the fix, investigate and correct.
-   - If it is a pre-existing failure, note it but do not block on it.
+   - If it is a pre-existing failure, route it through `lib/adjacent-problems.md` rather than
+     only noting it. Confirm it *is* pre-existing by running the same test on `origin/<base>` —
+     Step 0.4 rebased onto the latest base, so "it failed before" needs re-checking against what
+     the branch now sits on.
 
 ### Step 3.3 — Run formatters if applicable
 
@@ -298,6 +329,8 @@ For each failure:
 
 ### Unfixed Failures
 - List any failures that were not fixed, with explanation (pre-existing, infrastructure, etc.).
+- For each pre-existing failure, state where triage sent it: fixed in which commit, filed as which
+  ticket, suggested as which worktree, or declined and why.
 
 ### Build & Test Results
 - Local build status (pass/fail).
@@ -315,11 +348,16 @@ For each failure:
 ## Rules
 
 - ALWAYS use `--force-with-lease` instead of `--force` when pushing amended commits.
+- ALWAYS rebase onto the latest base before diagnosing — a failure judged against a stale base is
+  a failure you may not have.
 - NEVER introduce behavioral changes beyond what is needed to fix the CI failure.
 - NEVER skip the local build/test verification step.
 - NEVER leave the working tree in a dirty or unexpected state — always restore stashes and return to the original branch.
 - NEVER silently discard local changes — always stash and restore.
 - If a CI failure is due to a flaky test or infrastructure issue (not a code defect), do NOT modify any code. Report it as an infrastructure issue in the summary.
-- If ALL failures are pre-existing or infrastructure-related, skip the amend/push steps and only produce the summary report.
+- If ALL failures are infrastructure-related, skip the amend/push steps and only produce the summary report.
+- If ALL failures are pre-existing, do not stop at the summary — route them through
+  `lib/adjacent-problems.md` so the user gets options (fix now, ticket, parallel worktree) rather
+  than a blocked PR and no next step.
 - When amending commits, preserve the original commit message and author information (`--no-edit`).
 - When in doubt about whether a test failure is caused by the PR/MR changes, compare the same test on the base branch before modifying anything.
