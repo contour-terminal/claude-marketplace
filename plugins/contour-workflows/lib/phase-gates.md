@@ -41,7 +41,9 @@ Then close every phase the same way, before starting the next:
    commissioned for, put any issue-closing trailer on **now**, in the shape the calling skill
    specifies. Adding it later means rewording a
    commit that is no longer the tip, and there is no clean non-interactive way to do that.
-4. **`/code-review medium <phase-base>..HEAD`.** Name both. Without the level it reuses whichever
+4. **`/code-review <level> <phase-base>..HEAD`** — `medium` for a phase of a multi-phase plan,
+   and the calling skill's final-pass level when the plan turned out to be a single phase, so that
+   the shortcut below is actually reachable. Name both. Without the level it reuses whichever
    ran last, and a gate whose depth depends on unrelated history is not a gate; without the range
    it resolves its own target from the branch, re-reviewing phase one once per phase.
 5. **Address every finding**, folding fixes into the phase's commits — `/absorb` puts each one on

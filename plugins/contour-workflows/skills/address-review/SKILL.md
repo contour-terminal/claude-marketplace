@@ -172,10 +172,9 @@ For each comment, arrive at one of these verdicts:
 
 For each comment with verdict ACCEPT or ACCEPT WITH MODIFICATION:
 
-1. Make the code change using the Edit tool. Do the ACCEPT and ACCEPT WITH MODIFICATION changes
-   first, as one pass, and let Phase 4 commit them. Only then make any **ADJACENT** edit Step 2.4
-   sized as small enough to fix now, and commit that separately. Applying both in one pass produces
-   a mixed tree that cannot be split afterwards.
+1. Make the code change using the Edit tool — the ACCEPT and ACCEPT WITH MODIFICATION changes
+   only. Leave any **ADJACENT** edit to Phase 4, which makes and commits it *after* the review
+   commit exists. Applying both here produces a mixed tree that cannot be split afterwards.
 2. If the reviewer used a suggestion block, apply it exactly (for ACCEPT) or with your modifications (for ACCEPT WITH MODIFICATION).
 3. Maintain consistent code style (run through project formatting if applicable).
 4. If a change in one location requires corresponding changes elsewhere (e.g., updating call sites, header declarations), make all necessary related changes.
@@ -197,24 +196,16 @@ After applying all changes:
 
 ### Step 4.1 — Create the commit
 
-**Commit any adjacent fix on its own.** A fix made for an ADJACENT comment answers something the
-branch was not about, so folding it into the review commit hides it from the reviewer who asked and
-makes it unrevertable on its own.
+**The review changes are committed here; any adjacent fix is a separate commit made afterwards.**
+A fix made for an ADJACENT comment answers something the branch was not about, so folding it into
+the review commit hides it from the reviewer who asked and makes it unrevertable on its own.
 
-Do not make both fixes and then try to split the tree: the "while you're here" comment is common
+Do not make both and then try to split the tree — the "while you're here" comment is common
 precisely *because* the reviewer is already looking at a file the branch touched, so the two edits
-routinely share a file — and a mixed tree cannot be separated non-interactively (`git add -p`
-prompts per hunk and has no stdin here; `/absorb` bans it by name).
+routinely share a file. Apply *Splitting a mixed working tree* from
+`${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md`: sequence them instead.
 
-Sequence them instead, in the order Step 3.1 applies them: the review changes go in first and get
-the commit below, and only then are the adjacent edits made and committed on their own:
-
-```
-git add -A && git commit -s -m "<what the adjacent fix repairs>"
-```
-
-Keep the review framing out of that message. First, though, stage the review changes and create a
-single commit with a descriptive message:
+First, stage the review changes and create a single commit with a descriptive message:
 
 ```
 git commit -s -m "$(cat <<'EOF'
@@ -229,6 +220,15 @@ EOF
 ```
 
 If there are many changes, group them logically in the commit body.
+
+**Then, and only then**, make the adjacent edit, re-run the build and suite from Step 3.2 — which
+ran before this fix existed — and commit it on its own:
+
+```
+git add -A && git commit -s -m "<what the adjacent fix repairs>"
+```
+
+Keep the review framing out of that message.
 
 ## Phase 5 — Summary Report
 

@@ -40,8 +40,10 @@ Turn an issue into a well-tested change that is merge-ready and green. The workf
 
 ### Step 0.0 — Load the shared policy
 
-Read both of these with the **Read** tool before anything else:
+Read these with the **Read** tool before anything else:
 
+- `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` — publishing, force-pushing, stashes, and why a mixed
+  working tree gets sequenced rather than split. Phases 1, 5 and 7 all depend on it.
 - `${CLAUDE_PLUGIN_ROOT}/lib/phase-gates.md` — *The plan* and *The phase gate*, the two mechanisms
   Phases 2 and 3 run on. Every step below that says "close the phase" means the gate defined there.
 - `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` — what to do with a real problem that is not the
@@ -145,6 +147,11 @@ before proceeding:
 | **feature** | "add", "support for", "it would be nice", acceptance criteria, an `enhancement` label | Phase 2F |
 | **chore** | dependency bump, CI config, docs, typo, mechanical refactor | Phase 2C |
 
+The phase gate stamps the issue-closing trailer on the phase that delivers what the issue asked
+for, so settle its shape now rather than at Phase 5: `Fixes #<n>` for a bug, `Closes #<n>` for a
+feature or chore, on a commit whose subject is prefixed with the module area (`vtbackend:`, `ci:`,
+`build:`) rather than `feat:`/`fix:`, committed with `-s`.
+
 Labels are a hint, not the decision — read the content. If the issue is genuinely mixed (a bug
 report that also requests an enhancement), say so and handle the bug first, or ask which the user
 wants. Where critical information is missing, **say what is unknown rather than guessing**; for a
@@ -160,15 +167,10 @@ bug you cannot reproduce, stop and report what you tried.
    git stash push --include-untracked -m "work-issue: auto-stash"
    git rev-parse stash@{0}          # remember; Phase 8 pops by identity, not by position
    ```
-   Tell the user. All three matter: `/rebase` and `/fix-ci` create stashes of their own later, so a
-   bare `git stash pop` takes whichever is on top — quite possibly theirs — and popping on the
-   feature branch would drop unrelated work into the branch under review.
-
-   **Restore it on every exit from here on, not just the last one.** This workflow stops early in
-   several places — an unresolved challenge verdict, a rejected plan, a `/rebase` conflict in
-   Phase 6, a CI loop that stops converging in Phase 7 — and each of those must run the Phase 8
-   restore before returning, or the user is left on a branch they did not start on with their work
-   in a stash entry mentioned once, dozens of steps earlier.
+   Tell the user, and follow *Stashes* in `lib/git-safety.md` from here on. Its "restore on every
+   exit" rule has real bite in a workflow this long: an unresolved challenge verdict, a rejected
+   plan, a `/rebase` that stops in Phase 6, a CI loop that stops converging in Phase 7 — each must
+   run the Phase 8 restore before returning.
 3. Resolve the default branch — `git fetch origin`, then
    `git symbolic-ref --short refs/remotes/origin/HEAD`, stripping the `origin/` prefix. Fall back
    to `main`, then `master`, only if that fails.
@@ -402,8 +404,9 @@ ones route through `lib/adjacent-problems.md`, infrastructure ones are simply re
 ### Step 7.4 — Re-gate whatever CI changed
 
 Phase 3 reviewed the branch as it stood *before* CI touched it. If `/fix-ci` changed source — as
-opposed to formatting or CI configuration — run `/simplify` and then `/code-review medium` over
-that delta, so nothing reaches the merge unreviewed.
+opposed to formatting or CI configuration — run `/simplify`, then `/code-review medium` over that
+delta, so nothing reaches the merge unreviewed. Only the review takes a range; `/simplify` scopes
+itself, as *The phase gate* notes.
 
 Name a range for the review, for the same reason the phase gate does — without one, every CI pass
 re-reviews the whole branch and re-surfaces findings Phase 3 already adjudicated. But do not reuse
@@ -449,18 +452,9 @@ longer checks anything is worse than an honest red, because it survives review.
 If the PR was opened as a draft, say how to promote it — `gh pr ready <number>` or
 `glab mr update <iid> --ready`. Promoting is the author's call, so do not do it.
 
-**Restore the Step 1.5 stash** if you created one, and say so. Return to the branch it was taken
-from first, then pop the entry whose SHA you recorded — not `stash@{0}`, since `/rebase` and
-`/fix-ci` leave stashes of their own and pop is last-in-first-out:
-
-```
-git checkout <branch recorded in Step 1.5>
-git stash list --format='%H %gd'      # find the recorded SHA, note its stash@{n}
-git stash pop 'stash@{n}'
-```
-
-`git stash pop <sha>` is not valid git — it fails with "is not a stash reference" — so the lookup
-is not optional. If the pop conflicts, leave the stash intact and say where it is.
+**Restore the Step 1.5 stash** if you created one, and say so — following *Stashes* in
+`lib/git-safety.md`, which covers returning to the original branch first and popping by identity
+rather than position.
 
 ## Rules
 

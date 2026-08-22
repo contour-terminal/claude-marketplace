@@ -67,17 +67,11 @@ recordings are only correct while no fetch has happened yet.
 
 4. **Record whether the branch is published, and its remote tip.**
 
-   ```
-   git rev-parse --verify refs/remotes/origin/<branch>
-   ```
+   Apply *Is this branch published?* from `lib/git-safety.md` — the test is the branch's own
+   remote ref, never `@{upstream}`, and a fork PR's head lives on another remote entirely.
 
-   Test for that ref specifically — *not* for `@{upstream}`. A branch created with
-   `git checkout -b fix/123 origin/master`, which is what `/work-issue` does, has `@{upstream}` set
-   to `origin/master`: an upstream exists, but no remote branch of its own does. Treating that as
-   published makes Step 5 force-push at `origin/master`.
-
-   If it exists, record the SHA now. Step 5's lease depends on it, and any fetch in between —
-   Step 1's, or one the calling skill already ran — is exactly what would spoil it.
+   Step 1 fetches only the base, never this branch, so the ref you read here is already the tip
+   your work is based on: record it now and Step 5's lease has its expected value.
 
 ## Step 1 — Has the base actually moved?
 
@@ -107,17 +101,10 @@ the user needs if a conflict shows up next.
 Only now, once a rebase is actually going to happen. A rebase will not start with uncommitted
 changes:
 
-```
-git stash push --include-untracked -m "rebase: auto-stash"
-git rev-parse stash@{0}        # record it; Step 6 pops by identity, not by position
-```
-
-Record that SHA rather than trusting `stash@{0}` later: this skill is usually invoked *from*
-`/work-issue` or `/fix-ci`, which have stash entries of their own on the stack. Tell the user — silently pocketing someone's work in progress is how it
-gets lost. **Restore it on every exit from here on**, not just the happy one: a conflict that
-cannot be resolved (Step 3) and a rejected lease (Step 5) both end the run, and both must pop the
-stash first, or the tree comes back deceptively clean with the user's work parked in an entry
-nobody told them about.
+Apply *Stashes* from `lib/git-safety.md`: record the entry's identity as you create it, and
+restore it on every exit from here on — not only the successful one. This skill has three early
+exits after this point: an unresolvable conflict (Step 3), a failed build or suite (Step 4), and a
+rejected lease (Step 5). Each must restore before returning.
 
 ## Step 2 — Rebase
 
@@ -183,7 +170,9 @@ callee; your test, their changed default — merge without complaint.
    reproduces there is pre-existing and is not yours to absorb into this rebase.
 
    Report it using the *Classification* vocabulary from
-   `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` and stop there. This skill has no commit step,
+   `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` and stop — restoring the Step 1.5 stash on the
+   way out, and saying plainly that the rebase happened but the branch does not build or pass, so
+   a caller does not carry on treating this as a successful sync. This skill has no commit step,
    so it does not fix, file or branch off for anything — that is the caller's decision, and
    `/work-issue` and `/fix-ci` both know what to do with a finding labelled adjacent.
 
@@ -207,37 +196,25 @@ is the point, but it needs finishing: fix the commit and `git rebase --continue`
 ## Step 5 — Publish
 
 Skip this entirely if Step 0.1 saw `--no-push`, or if Step 0.4 found the branch
-**unpublished** — no `refs/remotes/origin/<branch>`. Do not test `@{upstream}` here either: it is
-set on branches that have no remote branch of their own, and pushing one of those with
-`push.default=upstream` aims at the base. A caller about to push a fix of its own should rebase
-locally and push once: every force-push restarts CI, and two pushes mean two full runs for one
-logical change.
+**unpublished** by the *Is this branch published?* test — not by `@{upstream}`, which is set on
+branches that have no remote branch of their own. A caller about to push a fix of its own should
+rebase locally and push once: every force-push restarts CI, and two pushes mean two full runs for
+one logical change.
 
 Otherwise:
 
-Name the SHA recorded in Step 0.4 in the lease:
+Apply *Force-pushing safely* from `lib/git-safety.md`, with the SHA recorded in Step 0.4:
 
 ```
-git push --force-with-lease=<branch>:<sha-recorded-in-step-0.4>
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.4> origin <branch>
 ```
 
-A rebase rewrites history, so the push must be forced. The explicit expectation is what makes the
-lease mean anything: a bare `--force-with-lease` trusts the remote-tracking ref, and any fetch
-since — Step 1's, or one a caller ran before invoking this skill — has already quietly updated it
-to include a colleague's push. Never `--force`.
-
-**If the lease is rejected, stop.** Someone else's commits are on that branch. Escalating to
-`--force` discards precisely what the lease existed to protect. Report it and let the user decide.
+All three parts are load-bearing — the explicit SHA, the named remote and refspec, and stopping
+rather than escalating to `--force` if the lease rejects.
 
 ## Step 6 — Restore and report
 
-Check first that no rebase is still in progress — `git status` says so plainly, and a failed
-`--exec` or an abandoned conflict leaves one. Popping a stash onto a half-finished rebase only
-compounds the mess.
-
-Then restore the Step 1.5 stash if there was one, by identity — `git stash list --format='%H %gd'`
-to find the recorded SHA, then pop that `stash@{n}`. `git stash pop <sha>` is not valid git. If it
-conflicts, say so and leave the stash intact rather than forcing it.
+Restore the Step 1.5 stash if there was one, following *Stashes* in `lib/git-safety.md`.
 
 Report:
 

@@ -18,7 +18,10 @@ Diagnose and fix CI failures on a pull/merge request. Amend the fix into the exi
 
 ### Step 0.0 — Load the adjacent-problem policy
 
-Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool. CI is where problems
+Read `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` with the **Read** tool — this skill rewrites
+published history, stashes, and force-pushes, and that file holds the rules for all three.
+
+Then read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md`. CI is where problems
 that are not yours surface most bluntly — a job that was already red before this branch existed
 still blocks the merge. Step 2.4, Step 3.2 and the Rules cite its sections by heading.
 
@@ -48,8 +51,8 @@ git status --porcelain
 
 If there are uncommitted changes:
 1. Stash everything: `git stash push --include-untracked -m "fix-ci: auto-stash before CI fix"`
-2. Record which entry that is — `git rev-parse stash@{0}` — because Step 4.1 and `/rebase` both
-   create stashes of their own, so by Step 5.2 `stash@{0}` is often not yours.
+2. Record which entry that is — `git rev-parse stash@{0}` — per *Stashes* in `lib/git-safety.md`.
+   `/rebase` stashes too, so by Step 5.2 `stash@{0}` is often not yours.
 3. Set an internal flag `STASH_APPLIED=true` so we can restore later.
 4. Inform the user that changes were stashed.
 
@@ -59,13 +62,7 @@ If there are uncommitted changes:
 1. Fetch the PR/MR metadata to find its head branch:
    - **GitHub**: `gh pr view $ARGUMENTS --json headRefName,number,url,title,state`
    - **GitLab**: `glab mr view $ARGUMENTS --output json`
-2. **Record the branch's remote tip now, before fetching it** —
-   `git rev-parse --verify refs/remotes/origin/<branch>`. Every force-push below names this SHA in
-   its lease, and the fetch on the next line is exactly what would spoil the value: it refreshes
-   the tracking ref, so a SHA read afterwards may already contain a colleague's push and the lease
-   built from it would wave that push through. If the ref does not exist the branch is not
-   published, and nothing here should push at all.
-3. If the current branch is NOT the PR/MR's head branch:
+2. If the current branch is NOT the PR/MR's head branch:
    - Fetch the branch: `git fetch origin <branch>`
    - Check it out: `git checkout <branch>`
    - Set an internal flag `SWITCHED_BRANCH=true` and remember the original branch name.
@@ -78,10 +75,23 @@ If there are uncommitted changes:
 
 Record the PR/MR number and URL for use throughout the remaining phases.
 
+**Then, on either path, record the lease baseline.** Fetch the head branch first, then read its tip:
+
+```
+git fetch origin <branch>
+git rev-parse --verify refs/remotes/origin/<branch>
+```
+
+Every force-push below names that SHA. *Force-pushing safely* in `lib/git-safety.md` explains why
+it is read **after** the fetch rather than before, and what to do if the fetch moves the ref —
+someone has pushed since you last looked, and that has to be reconciled, not adopted as your
+baseline. If the branch is a fork PR head, resolve the real remote as *Is this branch published?*
+describes rather than assuming `origin`.
+
 ### Step 0.4 — Rebase onto the latest base
 
 Run **`/rebase --no-push`** before diagnosing anything. Every force-push below names the SHA
-recorded in Step 0.3 — `git push --force-with-lease=<branch>:<sha>`.
+recorded in Step 0.3, with the remote and refspec spelled out, per *Force-pushing safely*.
 
 CI judged this branch against the base it was cut from. If other work has landed since, the failure
 in front of you may already be fixed upstream, or may have been caused by what landed there —
@@ -100,8 +110,7 @@ otherwise get wrong:
   deferred it — do not just stop and leave the user diverged from `origin`, with their next
   ordinary `git push` rejected for a rewrite this skill performed and never mentioned.
 
-  Prefer pushing the rebase on its own (`git push --force-with-lease=<branch>:<sha>`, saying CI
-  will re-run): it
+  Prefer pushing the rebase on its own (same leased form, saying CI will re-run): it
   keeps the conflict resolutions `/rebase` may have just made. Undo it only if the user asks, and
   then with `git reset --hard ORIG_HEAD`, which `git rebase` set to the pre-rebase tip. Never
   `git reset --hard @{u}` — on a branch created as `git checkout -b fix/123 origin/master`, which
@@ -111,8 +120,9 @@ otherwise get wrong:
   was taken from and may now conflict where it would not have. Warn on the conflict rather than
   forcing it, and leave the stash intact.
 
-If `/rebase` reports an unresolvable conflict, stop — that conflict, not the CI failure, is now the
-thing to deal with.
+If `/rebase` stops for any reason — an unresolvable conflict, or a branch that no longer builds or
+passes its suite once rebased — stop with it. That, not the CI failure, is now the thing to deal
+with, and diagnosing CI against a tree whose own suite is red produces nothing trustworthy.
 
 ## Phase 1 — Identify CI Failures
 
@@ -281,7 +291,9 @@ assuming C++; `/rebase` just built this tree in Step 0.4 and describes the same 
 3. All tests must pass. If any test fails:
    - If it is related to the fix, investigate and correct.
    - If it is a pre-existing failure, route it through `lib/adjacent-problems.md` rather than
-     only noting it. Confirm it *is* pre-existing by running the same test on `origin/<base>` —
+     only noting it. Confirm it *is* pre-existing by running the same test on `origin/<base>` in a scratch worktree
+(`git worktree add ../<repo>-base origin/<base>`), never by checking the base out here — the tree
+holds uncommitted work and a stash may be outstanding. Then —
      Step 0.4 rebased onto the latest base, so "it failed before" needs re-checking against what
      the branch now sits on.
 
@@ -294,23 +306,15 @@ If the project uses clang-format or similar tools, run them on modified files to
 ### Step 4.1 — Amend the commit
 
 **If Step 2.4 routed a pre-existing problem into a fix, do not make both fixes and then try to
-split the result.** A mixed working tree cannot be separated non-interactively: `git add -p`
-prompts for every hunk and has no stdin here (`/absorb` bans it by name for this reason), and
-`git stash push --keep-index` leaves untracked files behind, so the `git add -A` below would
-swallow a newly added file anyway.
+split the result.** Apply *Splitting a mixed working tree* from `lib/git-safety.md`: sequence them
+instead, and because one of these commits gets amended, the CI fix goes first.
 
-Sequence the work instead — the fixes are yours to make, so make them one at a time:
-
-1. Apply **only** the CI fix. Amend it into the commit it belongs to, using the recipes below.
-2. Then apply the adjacent fix and commit it on its own:
+1. Apply **only** the CI fix, and amend it into the commit it belongs to, using the recipes below.
+2. Then apply the adjacent fix, **re-run the build and suite** (Step 3.2 ran before this fix
+   existed, and Step 4.2 is about to push it), and commit it on its own:
    ```
    git add -A && git commit -s -m "<what the adjacent fix repairs>"
    ```
-
-That order matters: committing the adjacent work first makes it HEAD, and every `--amend` below
-would then land on the wrong commit. If both fixes are already sitting in the tree together, revert
-the adjacent one and redo it in step 2 — that is simpler and safer than parking it in a stash whose
-lifecycle then has to be tracked through an amend, a possible rebase, and every early exit.
 
 Amend the CI fix into the appropriate commit:
 
@@ -351,12 +355,11 @@ Amend the CI fix into the appropriate commit:
 
 Push the amended commit(s) to the remote:
 ```
-git push --force-with-lease=<branch>:<sha-recorded-in-step-0.3>
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.3> origin <branch>
 ```
 
-Use `--force-with-lease` (not `--force`) to prevent accidentally overwriting concurrent changes by
-others, and name the expected SHA rather than leaving it bare — Step 0.4 explains why a bare lease
-is worthless after a fetch.
+Per *Force-pushing safely* in `lib/git-safety.md`: explicit SHA, named remote and refspec, and stop
+rather than escalate if the lease rejects.
 
 ## Phase 5 — Cleanup
 
@@ -368,10 +371,8 @@ If `SWITCHED_BRANCH=true`:
 ### Step 5.2 — Restore stashed changes
 
 If `STASH_APPLIED=true`:
-1. Pop **the entry whose SHA you recorded in Step 0.2**, not whatever is on top — `/rebase` stashes
-   too, so `stash@{0}` is frequently somebody else's. Find it again with
-   `git stash list --format='%H %gd'` and pop that `stash@{n}`; `git stash pop <sha>` is not valid
-   git and errors with "is not a stash reference".
+1. Pop **the entry whose SHA you recorded in Step 0.2**, following *Stashes* in
+   `lib/git-safety.md` — not whatever is on top, since `/rebase` stashes too.
 2. Inform the user that their stashed changes have been restored.
 3. If the stash pop fails (conflicts), inform the user and leave the stash intact.
 
@@ -424,7 +425,8 @@ For each failure:
 - NEVER skip the local build/test verification step.
 - NEVER leave the working tree in a dirty or unexpected state — always restore stashes and return
   to the original branch, and never leave the branch silently diverged from its remote after a rebase.
-- NEVER `git add -A` when an adjacent fix is in the tree; it belongs in its own commit.
+- NEVER `git add -A` a tree that mixes the adjacent fix with the CI fix. Staging `-A` when the
+  adjacent fix is the *only* thing in the tree is the prescribed step — the ban is on the mixture.
 - NEVER silently discard local changes — always stash and restore.
 - If a CI failure is due to a flaky test or infrastructure issue (not a code defect), do NOT modify any code. Report it as an infrastructure issue in the summary.
 - If ALL failures are infrastructure-related, skip the amend step and only produce the summary

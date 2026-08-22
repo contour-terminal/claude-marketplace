@@ -181,8 +181,9 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
 3. Keep `allowed-tools` as tight as the skill actually needs. The subagent tool is named
    `Agent` (not `Task`). Scoped `Bash(git:*)`-style patterns are the default; bare `Bash` is
    justified only where the command set genuinely cannot be enumerated — `/rebase` must build with
-   whatever the repository uses (`cargo`, `go`, `npm`, `make`, a CMake preset), and `/work-issue`
-   and `/fix-ci` inherit that because they invoke it. If a skill invokes another, its `allowed-tools`
+   whatever the repository uses (`cargo`, `go`, `npm`, `make`, a CMake preset), `/work-issue`
+   and `/fix-ci` inherit that because they invoke it, and `/address-review` needs it for its own
+   build-and-test step. If a skill invokes another, its `allowed-tools`
    has to cover what the callee runs, so widen deliberately and say why rather than by reflex.
 4. Bundle supporting scripts next to `SKILL.md` and reference them via
    `${CLAUDE_PLUGIN_ROOT}` — never `~/.claude/...`. Plugins run from a cache directory, so
@@ -209,8 +210,11 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    `--force-with-lease` is defeated by any fetch, so name the expected SHA.
 8. If the skill implements a change in stages, read `lib/phase-gates.md` for what a plan must
    contain and how a phase is closed, rather than defining your own gate.
-9. Add it to the table above.
-10. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
+9. If the skill publishes a branch, rewrites history, stashes, or has to separate two changes in
+   one tree, read `lib/git-safety.md` and cite its sections. Every rule in it exists because four
+   skills each derived it independently and at least one got it wrong.
+10. Add it to the table above.
+11. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
    the entry in `.claude-plugin/marketplace.json`. The version is pinned, so users receive
    nothing until it changes.
 
