@@ -2,7 +2,7 @@
 name: sanitize
 description: Build and run tests under AddressSanitizer, UndefinedBehaviorSanitizer, and ThreadSanitizer to catch memory errors, UB, and data races that ordinary test runs miss. Use before merging changes to buffer handling, parsing, lifetime/ownership, or threading — or when a test fails intermittently, crashes non-deterministically, or produces corrupted output.
 argument-hint: "[asan|ubsan|tsan|all] [test-target-or-filter]"
-allowed-tools: Bash(cmake:*), Bash(ctest:*), Bash(git:*), Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(nproc:*), Read, Grep, Glob, Edit
+allowed-tools: Bash(cmake:*), Bash(ctest:*), Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ls:*), Bash(find:*), Bash(grep:*), Bash(nproc:*), Read, Grep, Glob, Edit
 ---
 
 # Sanitize
@@ -13,6 +13,13 @@ Sanitizers find bugs that are *already there* but invisible: a read one byte pas
 use-after-free that happens to land on still-mapped memory, signed overflow the optimizer is
 entitled to exploit, a race that only loses on a loaded machine. Ordinary green tests say
 nothing about any of it.
+
+## Step 0 — Load the adjacent-problem policy
+
+Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool before diagnosing
+anything. Sanitizers overwhelmingly surface bugs that predate the change under test, so *what to do
+with a finding that is not yours* is the common case here, not the exception. Step 4 and Step 6
+cite its sections by heading.
 
 ## Which sanitizer to run
 
@@ -103,9 +110,12 @@ A sanitizer report is a *starting point*, not a conclusion. For each finding:
 2. **Read the implicated code** and determine the real defect: who owns the memory, what
    invariant broke, which lifetime ended early.
 3. **Classify:**
-   - **Real bug in the change under test** — fix it.
-   - **Real pre-existing bug** — report it with file:line; fix only if in scope, otherwise
-     flag it clearly for follow-up.
+   - **Real bug in the change under test** — in-scope. Fix it.
+   - **Real pre-existing bug** — apply *Classification*, then *Sizing* and *Routing* from
+     `lib/adjacent-problems.md`. Small and in code this change already touches: fix it now in its
+     own commit. Larger, or carrying a design decision: ask, then file a ticket carrying the
+     stack and the diagnosis, or suggest a parallel worktree. A finding that makes the change
+     under test unverifiable is a **blocker**, not adjacent — say so and stop.
    - **Third-party / system library** — likely needs a suppression, not a fix. Confirm the
      stack genuinely leaves first-party code before concluding this.
    - **False positive** — genuinely rare. Requires an explicit argument for why the tool is
@@ -136,7 +146,9 @@ Finally, confirm the ordinary (non-sanitizer) test suite still passes.
   (TSan especially).
 - **Findings** — one entry each: type, location (file:line), root cause, classification.
 - **Fixes applied** — what changed and why.
-- **Left open** — pre-existing or third-party issues, with enough detail to file them.
+- **Triage decisions** — every adjacent finding and where it went: fixed in which commit, filed
+  as which ticket, suggested as which worktree, or declined and why. Third-party issues belong
+  here too, with enough detail to file them.
 - **Coverage caveat** — sanitizers only observe *executed* code. If the suite does not
   exercise the changed path, a clean run proves nothing. Say so explicitly when it applies.
 - **Risk assessment** — Low / Medium / High.
@@ -150,4 +162,6 @@ Finally, confirm the ordinary (non-sanitizer) test suite still passes.
 - NEVER conclude "false positive" without a concrete argument for why the tool is wrong.
 - ASan and TSan cannot share a build tree.
 - Prefer the project's existing preset over ad-hoc flags.
+- NEVER fold a pre-existing fix into a commit that claims to be about the change under test —
+  `lib/adjacent-problems.md` explains why it gets its own commit.
 - A clean sanitizer run over code the tests never execute is not evidence of correctness.

@@ -61,6 +61,13 @@ Evaluate every changed hunk against **each** of the following categories. For ea
 
 #### Step 3 — Proposed changes
 - Suggest a change for each finding that needs one.
+- Mark each finding **in-scope** or **adjacent**, using the *Classification* vocabulary from
+  `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` (read it with the **Read** tool). A whole-branch
+  sweep naturally drifts into code the branch only sits near, and an unmarked finding forces the
+  author to work out whether it was ever this branch's job. Marked, it is something
+  `/address-review` and `/work-issue` can route directly.
+- Only the vocabulary applies: this skill reviews and reports, so sizing, fixing, ticket-filing and
+  worktrees belong to whoever acts on the review.
 
 #### Step 4 — Code duplication
 - Detect any new code duplication introduced by the changes. If found, suggest refactoring to eliminate it.
@@ -69,13 +76,13 @@ Evaluate every changed hunk against **each** of the following categories. For ea
 
 Provide a concise summary table:
 
-| Category | Findings | Severity |
-|---|---|---|
-| Code quality | … | … |
-| C++23 opportunities | … | … |
-| Naming &amp; API shape | … | … |
-| Test coverage | … | … |
-| Performance | … | … |
-| Risk | … | … |
+| Category | Findings | Severity | Scope |
+|---|---|---|---|
+| Code quality | … | … | … |
+| C++23 opportunities | … | … | … |
+| Naming &amp; API shape | … | … | … |
+| Test coverage | … | … | … |
+| Performance | … | … | … |
+| Risk | … | … | … |
 
 End with an overall verdict: **Approve**, **Approve with suggestions**, or **Request changes**, along with a brief rationale.
