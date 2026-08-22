@@ -1,23 +1,32 @@
 ---
 name: work-issue
-description: Take a GitHub or GitLab issue from URL or number all the way to a committed branch. Reads the issue and everything it links to, classifies it as a bug, feature, or chore, then follows the matching workflow — reproduce-and-regression-test for bugs, design-and-test for features. Use for "implement issue 123", "fix this bug report", or any linked issue.
+description: Take a GitHub or GitLab issue from URL or number all the way to a merge-ready pull request. Reads the issue and everything it links to, challenges whether it is worth building as written, classifies it as a bug, feature, or chore, plans it for approval, then implements it phase by phase behind /simplify and /code-review gates before opening a PR and driving CI to green. Use for "implement issue 123", "fix this bug report", or any linked issue.
 argument-hint: "<issue-number-or-url>"
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent, WebFetch, WebSearch
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch
 ---
 
 # Work an Issue
 
-Turn an issue into a well-tested, committed branch. The workflow forks by issue *kind*:
-bugs demand a failing test before a fix; features demand a design before code.
+Turn an issue into a well-tested change that is merge-ready and green. The workflow forks by issue
+*kind*: bugs demand a failing test before a fix, features a design before code.
 
 ## Guiding principles
 
 1. **Understand before acting.** Read the issue and everything it links to first.
-2. **Reproduce before fixing.** A bug you cannot reproduce is a bug you cannot verify fixed.
-3. **Test-first for bugs.** The regression test must fail before the fix and pass after.
-4. **Minimal, correct fixes.** Fix the root cause, not the symptom; do not opportunistically refactor.
-5. **Evidence-based.** Cite concrete file paths and line numbers for every claim.
-6. **No regressions.** Run the full suite before reporting done.
+2. **Challenge before building.** An issue is a request, not a specification; a well-implemented
+   wrong thing is still the wrong thing.
+3. **Agree the approach before writing it.** Plan first, get approval, then implement.
+4. **Reproduce before fixing.** A bug you cannot reproduce is a bug you cannot verify fixed.
+5. **Test-first for bugs.** The regression test must fail before the fix and pass after.
+6. **Minimal, correct fixes.** Fix the root cause, not the symptom. "Minimal" bounds *scope*, not
+   craft: `/simplify` over code this change touched, and an adjacent fix in its own commit, are
+   both in bounds — neither is opportunistic refactoring.
+7. **Review every phase, not just the end.** A problem caught in the phase that caused it is
+   cheap; the same problem three phases later is archaeology.
+8. **Evidence-based.** Cite concrete file paths and line numbers for every claim.
+9. **No regressions.** Run the full suite before reporting done.
+10. **Done means green.** The work is finished when CI is green on a real PR, not when the code
+    compiles locally.
 
 ## Context
 
@@ -28,6 +37,20 @@ bugs demand a failing test before a fix; features demand a design before code.
 ---
 
 ## Phase 0 — Setup
+
+### Step 0.0 — Load the shared policy
+
+Read these with the **Read** tool before anything else:
+
+- `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` — publishing, force-pushing, stashes, and why a mixed
+  working tree gets sequenced rather than split. Phases 1, 5 and 7 all depend on it.
+- `${CLAUDE_PLUGIN_ROOT}/lib/phase-gates.md` — *The plan* and *The phase gate*, the two mechanisms
+  Phases 2 and 3 run on. Every step below that says "close the phase" means the gate defined there.
+- `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` — what to do with a real problem that is not the
+  one you came for. Cited by the phase gate and by Phases 2, 3 and 7.
+
+You do not need `lib/pr-conventions.md` — `/create-pr` and `/draft-pr` read it themselves in
+Phase 6.
 
 ### Step 0.1 — Detect the platform
 
@@ -59,30 +82,61 @@ If `$ARGUMENTS` is empty, **stop** and ask which issue to work on.
 - **GitHub**: `gh issue view <number> --json number,title,body,labels,comments,state,url`
 - **GitLab**: `glab issue view <number> --output json`
 
-If the issue is already closed, **stop** and report it — confirm with the user before
-working on closed issues.
+If the issue is already closed, **stop** and report it — confirm with the user first.
 
-Extract: title, reported behavior, expected behavior, reproduction steps, environment
-details, acceptance criteria, labels, and any related issues or PRs.
+Extract: title, reported behavior, expected behavior, reproduction steps, environment details,
+acceptance criteria, labels, and any related issues or PRs.
 
 ### Step 1.2 — Follow embedded links
 
-Scan the body *and all comments* for links. This is often where the real specification
-lives. For each link:
+Scan the body *and all comments* for links — often where the real specification lives. For each:
 
-1. **Classify**: spec/RFC/standard · related issue · documentation · code permalink · external reference.
-2. **Fetch**:
-   - specs, RFCs, docs, blog posts → `WebFetch`
-   - related GitHub issues → `gh issue view` / `gh api`
-   - related GitLab issues → `glab issue view` / `glab api`
-   - code permalinks → `Read` the referenced file at the referenced lines
-   - unfetchable links → note them, try `WebSearch` for an alternative source
+1. **Classify**: spec/RFC · related issue · documentation · code permalink · external reference.
+2. **Fetch**: specs, RFCs, docs and blog posts with `WebFetch`; related issues with
+   `gh issue view`/`gh api` or `glab issue view`/`glab api`; code permalinks by `Read`ing the
+   referenced file at the referenced lines. Note unfetchable links and try `WebSearch` instead.
 3. **Extract** what is relevant and fold it into the understanding below.
 
-Follow links one level deep by default. Go deeper only when a linked document itself points
-at the authoritative spec.
+Follow links one level deep by default; go deeper only when a linked document itself points at the
+authoritative spec.
 
-### Step 1.3 — Classify the issue
+### Step 1.3 — Challenge the issue
+
+An issue is what somebody wanted at the moment they wrote it. Before building it, judge whether it
+is worth building *as written*, and **state the verdict**. Nothing exists yet, so this is the
+cheapest moment to change course. Work through:
+
+- **Is the problem real?** Where reproduction is cheap, reproduce it — reports are sometimes
+  misdiagnosed, already fixed, or describe intended behaviour.
+- **Does it prescribe a solution where it should describe a problem?** Issues arrive as "add a
+  `--force` flag" when the underlying need is served better another way. Name the need, then say
+  whether the prescription serves it.
+- **Does the requested shape fit the architecture?** For C++ repositories invoke `/cpp-guidelines`
+  and judge against its *Design patterns & principles* and *Architectural boundaries*. An issue
+  asking for a global, a construct-then-configure setter, or a new `bool` parameter in an API is
+  asking for something this codebase has already decided against. Elsewhere, judge against the
+  architecture the surrounding code exhibits.
+- **Is it in the right layer?** A fix in the wrong module is a fix somebody moves later.
+- **Does it conflict with something already there?** Existing behavior, another open issue, or a
+  deliberate decision visible in `git log`.
+- **Is it specified enough to know when it is done?** Missing acceptance criteria and missing
+  reproduction steps block verification; they are not details to fill in later.
+
+Land on one verdict:
+
+- **Sound** — say so and proceed.
+- **Sound problem, wrong prescription** — say what you would do instead and get a decision. This
+  usually deserves a comment on the issue rather than a silent divergence: the author should learn
+  their suggestion was reshaped.
+- **Underspecified** — name what is missing and ask, rather than filling the gap with a guess that
+  turns out at review time to have been the whole disagreement.
+- **Architecturally problematic** — name the principle it cuts against, with `file:line` and the
+  guideline section. Implementing it anyway is writing tomorrow's refactor today.
+
+Do not proceed past a non-sound verdict on your own judgement. "Do it anyway" is a perfectly good
+answer — but it is the user's to give.
+
+### Step 1.4 — Classify the issue
 
 Decide which kind of work this is, and **state the classification and your reasoning**
 before proceeding:
@@ -93,24 +147,33 @@ before proceeding:
 | **feature** | "add", "support for", "it would be nice", acceptance criteria, an `enhancement` label | Phase 2F |
 | **chore** | dependency bump, CI config, docs, typo, mechanical refactor | Phase 2C |
 
-Labels are a hint, not the decision — read the content. If the issue is genuinely mixed
-(a bug report that also requests an enhancement), say so and handle the bug first, or ask
-which the user wants.
+The phase gate stamps the issue-closing trailer on the phase that delivers what the issue asked
+for, so settle its shape now rather than at Phase 5: `Fixes #<n>` for a bug, `Closes #<n>` for a
+feature or chore, on a `-s` commit whose subject carries the module area (`vtbackend:`, `ci:`,
+`build:`) rather than `feat:`/`fix:`.
 
-If critical information is missing — no reproduction steps for a bug, no acceptance
-criteria for a vague feature — **say what is unknown rather than guessing**. For a bug
-you cannot reproduce, stop and report what you tried.
+Labels are a hint, not the decision — read the content. If the issue is genuinely mixed (a bug
+report that also requests an enhancement), say so and handle the bug first, or ask which the user
+wants. Where critical information is missing, **say what is unknown rather than guessing**; for a
+bug you cannot reproduce, stop and report what you tried.
 
-### Step 1.4 — Create the branch
+### Step 1.5 — Create the branch
 
-1. Derive a short kebab-case description (3–5 words) from the issue title.
-2. If the working tree is dirty, stash: `git stash push --include-untracked` (tell the user).
-3. Resolve the default branch:
+1. Derive a short kebab-case description (3–5 words) from the title.
+2. If the working tree is dirty, record the branch you are on, then stash it *labelled*, keeping
+   the entry's identity:
    ```
-   git fetch origin
-   git symbolic-ref --short refs/remotes/origin/HEAD   # strip the "origin/" prefix
+   git branch --show-current        # remember; the stash belongs to this branch, not the new one
+   git stash push --include-untracked -m "work-issue: auto-stash"
+   git rev-parse stash@{0}          # remember; Phase 8 pops by identity, not by position
    ```
-   Fall back to `main`, then `master`, only if that fails.
+   Tell the user, and follow *Stashes* in `lib/git-safety.md` from here on. Its "restore on every
+   exit" rule has real bite in a workflow this long: an unresolved challenge verdict, a rejected
+   plan, a `/rebase` that stops in Phase 6, a CI loop that stops converging in Phase 7 — each must
+   run the Phase 8 restore before returning.
+3. Resolve the default branch — `git fetch origin`, then
+   `git symbolic-ref --short refs/remotes/origin/HEAD`, stripping the `origin/` prefix. Fall back
+   to `main`, then `master`, only if that fails.
 4. Branch from the freshly-fetched base, prefixed by kind:
    ```
    git checkout -b fix/<issue>-<desc> origin/<base>       # bug
@@ -124,9 +187,9 @@ you cannot reproduce, stop and report what you tried.
 
 ### Step 2B.1 — Locate the code
 
-Use Grep/Glob/Read to find the code on the failing path. For a large or unfamiliar
-codebase, launch the Agent tool with `subagent_type=Explore` for broad searches, in
-parallel where the searches are independent.
+Use Grep/Glob/Read to find the code on the failing path. For a large or unfamiliar codebase,
+launch the Agent tool with `subagent_type=Explore` for broad searches, in parallel where they are
+independent.
 
 ### Step 2B.2 — Root cause analysis
 
@@ -137,20 +200,32 @@ because Z."*
 Determine when it was introduced (`git log -S`, `git blame`) — this tells you whether a
 release note is warranted and whether other call sites share the flaw.
 
-### Step 2B.3 — Write the failing test first
+### Step 2B.3 — Plan and get approval
 
-Add a regression test that reproduces the bug, plus negative and edge cases around it.
-Follow the project's existing test conventions and place it beside comparable tests.
+Now, and not before: a plan written without the root cause is a guess with formatting. Follow
+*The plan* in `lib/phase-gates.md`. Cover both the regression test and the fix, since approval has to precede
+either, and decompose into phases if the fix spans more than one coherent slice — a fix plus the
+call sites that share the flaw is usually two.
 
-**Run it and confirm it fails**, for the reason the issue describes. A test that passes
-before the fix is testing the wrong thing — go back to Step 2B.2.
+### Step 2B.4 — Write the failing test first
 
-### Step 2B.4 — Apply the minimal fix
+Add a regression test that reproduces the bug, plus negative and edge cases around it, following
+the project's test conventions and placed beside comparable tests.
+
+**Run it and confirm it fails**, for the reason the issue describes. A test that passes before the
+fix is testing the wrong thing — go back to Step 2B.2.
+
+### Step 2B.5 — Apply the minimal fix
 
 Fix the root cause. Do not reformat surrounding code, rename things, or refactor
-opportunistically. If you find adjacent bugs, note them in the report — do not fix them here.
+opportunistically.
 
-### Step 2B.5 — Verify
+Work the approved plan one phase at a time, closing each with *The phase gate*.
+
+Adjacent bugs you notice on the way are neither a distraction to suppress nor a licence to widen
+the branch — route them through `lib/adjacent-problems.md`.
+
+### Step 2B.6 — Verify
 
 1. The new test now passes.
 2. The full suite passes (`ctest` or the project's runner) — no regressions.
@@ -175,25 +250,28 @@ Present the spec. If an open question blocks design, **ask the user** rather tha
 
 ### Step 2F.2 — Explore integration points
 
-Find, with concrete paths: the entry point where the feature is triggered; existing
-patterns for comparable features (base classes, interfaces, conventions); the test
-infrastructure and utilities available; and the components it will interact with. Use the
-Agent tool with `subagent_type=Explore` when the integration points are unclear.
+Find, with concrete paths: the entry point where the feature is triggered; patterns for comparable
+features (base classes, interfaces, conventions); the test infrastructure available; and the
+components it will interact with. Use `subagent_type=Explore` when the integration points are
+unclear.
 
-### Step 2F.3 — Design
+### Step 2F.3 — Design, and get the plan approved
 
-Produce a design that follows the codebase's existing architecture. Favor dependency
-injection so the feature is testable in isolation — inject collaborators rather than
-constructing them internally or reaching for globals. Cite the file paths and line numbers
-that justify each decision.
+Produce a design that follows the codebase's existing architecture. Favor dependency injection so
+the feature is testable in isolation — inject collaborators rather than constructing them
+internally or reaching for globals. Cite the paths and line numbers justifying each decision.
 
-Present the design before writing code.
+The design *is* the plan: present it through `ExitPlanMode` per *The plan* rather than as
+prose to skim past, decomposed into phases. A feature big enough to need a design almost always has
+more than one.
 
 ### Step 2F.4 — Implement with tests
 
-Implement the design, writing tests alongside: the happy path, edge cases, error paths, and
-any acceptance criteria stated in the issue. Match the surrounding code's idiom and comment
-density.
+Implement the design, writing tests alongside: happy path, edge cases, error paths, and any
+acceptance criteria the issue states. Match the surrounding code's idiom and comment density.
+
+Work the approved plan one phase at a time, closing each with *The phase gate*. Route anything the
+gates surface in code this feature did not touch through `lib/adjacent-problems.md`.
 
 ### Step 2F.5 — Verify
 
@@ -203,13 +281,36 @@ Full test suite green; acceptance criteria each demonstrably met.
 
 ## Phase 2C — Chore workflow
 
-Make the change directly. Keep it mechanical and reviewable. Add or update tests where the
-change has observable behavior; a dependency bump or CI tweak may legitimately have none —
-in that case verify by running the affected pipeline step locally.
+Chores get a plan first, like everything else — the rule against touching a file before approval
+has no exemption for small work; it is just proportionate, a sentence and a single phase. Once
+approved, make the change directly and keep it reviewable. Add or update tests where the change has
+observable behavior; a dependency bump or CI tweak may legitimately have none — verify those by
+running the affected pipeline step locally.
+
+Then close it with *The phase gate*, exactly as 2B and 2F do. A chore is usually one phase, so that
+gate is where the work gets reviewed *and committed*: Phase 3 is skipped for a single-phase plan and
+Phase 5 assumes commits exist, so skipping it leaves the chore uncommitted at `/create-pr`.
 
 ---
 
-## Phase 3 — Release note
+## Phase 3 — Final review pass
+
+Once the last phase is closed, review the branch as a whole:
+
+1. **`/simplify`.** Each per-phase run happened while later phases did not exist yet, so
+   duplication spanning phases has been invisible until now — this run is the first that can see
+   the whole shape. It is quick precisely because the per-phase runs cleared everything local.
+2. **`/code-review high origin/<base>..HEAD`**. Deeper than the per-phase `medium`: broader
+   coverage, and worth the extra noise once, on the finished shape of the change.
+3. **Address every finding.** Adjacent ones route through `lib/adjacent-problems.md`. Re-run the
+   full suite afterwards, since both steps can edit code, and commit whatever they changed —
+   leaving it uncommitted strands it at Phase 6, which opens with a `/rebase` that stashes it.
+
+Nothing reaches the PR with findings outstanding; a finding deliberately declined is a decision
+recorded in the Phase 8 report, not an omission. Skip this phase entirely when the plan was a
+single phase and its gate already ran at this depth.
+
+## Phase 4 — Release note
 
 If the repository tracks a changelog (`metainfo.xml`, `*.appdata.xml`, `CHANGELOG.md`, or
 `NEWS`) and the change is user-visible, add an entry in the existing style — the
@@ -218,49 +319,180 @@ If the repository tracks a changelog (`metainfo.xml`, `*.appdata.xml`, `CHANGELO
 Skip for internal refactors, test-only changes, and bugs introduced *after* the most recent
 release (there is nothing for users to be told about).
 
-## Phase 4 — Commit
+Commit the entry when you add it — nothing downstream sweeps up a dirty tree any more, so leaving
+it uncommitted means `/rebase` stashes it in Phase 6 and `/create-pr` pushes a PR without it.
 
-Commit the work, referencing the issue so it is linked and auto-closed:
+## Phase 5 — Finalize the history
+
+The phases committed as they closed, so the branch already has commits. What is left is making
+them read like the change somebody will review.
+
+1. **Check the issue trailer is there.** Exactly one commit — the one that delivers what the issue
+   asked for — closes it, and the phase gate put the trailer on when it committed that phase.
+   Verify it with `git log origin/<base>..HEAD` rather than adding it now: the tree is clean, so
+   there is nothing to `git commit`, and the commit is rarely the tip any more.
+
+   If the trailer is missing and that commit *is* the tip, amend it by passing the whole message —
+   `git commit -s --amend -m "$(cat <<'EOF' … EOF)"`, with the text below. A bare
+   `git commit --amend` opens `$EDITOR` and hangs, and `--no-edit` keeps the very message you are
+   trying to replace. If the commit is not the tip, reword it with a fixup rather than
+   `/rewrite-branch`, which regroups the whole branch and would fold the deliberately separate
+   adjacent-fix commits back in:
+
+   ```
+   TARGET=<the delivering commit>
+   { printf 'amend! %s\n\n' "$(git log -1 --format=%s $TARGET)"
+     printf '<the full new message>\n\n'
+     git log -1 --format='%(trailers)' $TARGET; } > /tmp/msg
+   GIT_EDITOR="cp /tmp/msg" git commit --allow-empty --fixup=reword:$TARGET
+   git -c sequence.editor=true rebase -i --autosquash --keep-base origin/<base>
+   ```
+
+   Three details silently break it if dropped. The `amend! <target subject>` first line is what
+   `--autosquash` matches — without it the reword is left as a stray commit at the tip. The
+   original trailers must be carried over, since the editor stub replaces the whole message and
+   `-s` cannot restore `Signed-off-by:` afterwards; on a repo with a DCO check, losing it fails CI.
+   And `--keep-base` confines this to the autosquash, instead of replaying the branch onto a base
+   that may have moved — an unverified rebase, one phase before Phase 6 does it properly.
+
+   The message it should end up with:
+
+   ```
+   <module>: <summary line>
+
+   <what changed and why — the root cause for a bug, the capability for a feature>
+
+   Fixes #<issue-number>
+   ```
+
+   Commit with `-s` throughout so `Signed-off-by:` comes from the committer's own git config. Use
+   the module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`, and
+   `Fixes #N` for bugs, `Closes #N` for features and chores.
+
+2. **Check the shape.** One commit per semantic unit — `/rewrite-branch` regroups a branch whose
+   phases were not the right seams. Phase boundaries are a good default, not an obligation.
+
+3. **Leave adjacent fixes alone.** Their own commits, no issue trailer; they were never what the
+   issue asked for.
+
+## Phase 6 — Open the PR/MR
+
+First run **`/rebase`**, so the very first CI run is judged against current `origin/HEAD` rather
+than whatever the base was when the branch started. Then open it — **`/create-pr`** normally, or
+**`/draft-pr`** when a Follow-up leaves the branch short of ready-to-merge. Both read
+`lib/pr-conventions.md` for platform detection, base resolution, the push, the changelog label rule
+and title/body composition, so do not restate any of that here.
+
+Record the PR/MR number and URL; Phase 7 needs both.
+
+## Phase 7 — Drive CI to green
+
+Loop until green or until one of the stop conditions fires.
+
+### Step 7.1 — Sync onto the latest base
+
+Run **`/rebase`**: it detects whether the base moved, resolves conflicts, proves the branch still
+builds and passes its suite, and force-pushes with a lease. It stops on its own when the base has
+not moved, so it is cheap to run every pass — and it needs to run every pass, because other
+branches keep landing while yours is in review. If it stops on an unresolvable conflict or a
+rejected lease, stop the loop too and report.
+
+### Step 7.2 — Wait for the run
+
+If Step 7.1 rebased, the branch has a new head and the provider needs a moment to register checks
+against it. Get that SHA and wait for a run belonging to it:
 
 ```
-git commit -s -m "$(cat <<'EOF'
-<module>: <summary line>
-
-<what changed and why — the root cause for a bug, the capability for a feature>
-
-Fixes #<issue-number>
-EOF
-)"
+gh pr view <number> --json headRefOid                        # GitHub
+glab mr view <iid> --output json     # then match the pipeline's sha    # GitLab
 ```
 
-Use `-s` so the `Signed-off-by:` trailer comes from the committer's own git config. Use the
-module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`. Use
-`Fixes #N` for bugs, `Closes #N` for features and chores.
+then `gh pr checks <number> --watch` or `glab ci status`. Watching too early reads the *previous*
+head's results: that is how a loop declares victory on a green CI never ran against, or dives into
+`/fix-ci` over a "no checks reported" that only meant "not yet".
 
-If the work splits into distinct semantic units, make one commit per unit — `/commit`
-encodes that grouping logic.
+CI takes minutes to hours, longer than a single command may block — poll at intervals or watch in
+the background rather than hanging one call until it is killed.
 
-## Phase 5 — Report
+### Step 7.3 — Green? Done. Red? Fix it
+
+Invoke **`/fix-ci`**: it owns diagnosis, the fix, the amend into the right commit, and the leased
+force-push, and classifies each failure as fixable, pre-existing or infrastructure — pre-existing
+ones route through `lib/adjacent-problems.md`, infrastructure ones are simply reported.
+
+### Step 7.4 — Re-gate whatever CI changed
+
+Phase 3 reviewed the branch as it stood *before* CI touched it. If `/fix-ci` changed source — as
+opposed to formatting or CI configuration — run `/simplify`, then `/code-review medium` over that
+delta, so nothing reaches the merge unreviewed. Only the review takes a range; `/simplify` scopes
+itself, as *The phase gate* notes.
+
+Name a range, for the same reason the phase gate does: without one every CI pass re-reviews the
+whole branch and re-surfaces findings Phase 3 already adjudicated. But do not reuse
+a SHA recorded before `/fix-ci` ran: it amends and autosquashes, which orphans that commit, and a
+range anchored to it silently widens to almost the whole branch. Take it from what `/fix-ci` reports it changed, but
+re-resolve the SHA afterwards: if it used a fixup, the one in its report is pre-autosquash and no
+longer reachable. Find the commit by subject in `git log origin/<base>..HEAD`, then use
+`<that-commit>~1..<that-commit>`. Do not reach for
+`HEAD~1..HEAD` — when the branch had a single commit that *is* the whole branch, and when `/fix-ci`
+autosquashed into an earlier one it points at an untouched commit and misses the fix entirely.
+
+Both *apply* edits, so commit and push whatever they change before looping. An uncommitted re-gate
+fix is worse than none: Step 7.1 runs `/rebase`, which stashes a dirty tree, and CI keeps judging a
+commit that never contained the fix. `/absorb` folds it into the commit it belongs to; otherwise
+amend and force-push with a lease.
+
+### Step 7.5 — Back to Step 7.1
+
+The base may have moved again while CI ran — that is why this is a loop.
+
+**Stop and report** instead of looping again when: every check is green (the goal); the same check
+has failed three times running, meaning the fix is not converging and a fourth attempt is guessing;
+a rebase conflict could not be resolved confidently or the lease was rejected; or what remains red
+is infrastructure or work the user deferred. In the last three cases say plainly that CI is not
+green and why, rather than implying the branch is finished.
+
+Never make CI green by deleting, skipping or disabling a test. A green wrung out of a suite that no
+longer checks anything is worse than an honest red, because it survives review.
+
+## Phase 8 — Report
 
 - **Issue** — number, title, URL, and your classification with reasoning.
+- **Challenge verdict** — sound, or what you pushed back on and what was decided.
 - **Root cause** *(bugs)* — the precise mechanism, with file:line.
 - **Change** — what was modified and why.
 - **Tests** — what was added; for bugs, explicit confirmation it failed before and passes after.
-- **Coverage** — coverage of the changed lines, if the project reports it.
-- **Performance impact** — hot paths, allocations, complexity; state "none" if none.
+- **Review gates** — the phases, and the `/simplify` + `/code-review` runs that closed each.
+- **Adjacent problems** — every triage decision and outcome: fixed in which commit, filed as which
+  ticket, suggested as which worktree, or declined and why.
+- **Coverage** — of the changed lines, if the project reports it.
+- **Performance impact** — hot paths, allocations, complexity; "none" if none.
 - **Risk assessment** — Low / Medium / High with justification.
-- **Follow-ups** — adjacent problems noticed but deliberately not fixed.
+- **Pull request** — URL, and the final CI status.
+- **Rebases** — how many, and what landed underneath on the way.
+- **Follow-ups** — anything left deliberately undone.
 
-Then offer `/create-pr`, or `/draft-pr` if any follow-up above leaves the branch short of
-ready-to-merge.
+If the PR was opened as a draft, say how to promote it — `gh pr ready <number>` or
+`glab mr update <iid> --ready`; promoting is the author's call. And **restore the Step 1.5 stash**
+if you created one, per *Stashes* in `lib/git-safety.md`: original branch first, pop by identity.
 
 ## Rules
 
 - NEVER fix a bug you have not reproduced.
 - NEVER write the fix before the failing test (bugs).
+- NEVER modify a file *for the change itself* before the plan is approved. Reproducing a bug and
+  finding its root cause come first by design and may need a scratch test or a temporary probe —
+  revert those before planning, and say what you ran.
+- NEVER build past a non-sound challenge verdict without an explicit decision from the user.
 - NEVER guess at missing requirements — ask, or state the assumption prominently.
-- NEVER expand scope beyond the issue; note adjacent problems instead of fixing them.
-- NEVER push or open a PR — that is `/create-pr` or `/draft-pr`.
+- NEVER fold an adjacent fix into a commit belonging to the issue; it gets its own.
+- NEVER escalate `--force-with-lease` to `--force`.
+- NEVER rebase or force-push the default branch.
+- NEVER make CI green by disabling, skipping or deleting a test.
 - NEVER work a closed issue without confirming with the user.
 - ALWAYS branch from a freshly fetched default branch.
+- ALWAYS close each phase with `/simplify`, then the commit, then `/code-review` naming both the
+  level and `<phase-base>..HEAD` — the commit comes first so the range exists.
+- ALWAYS restore a stash you created.
 - ALWAYS run the full test suite before reporting done.
+- ALWAYS rebase onto the latest base before judging a CI result.

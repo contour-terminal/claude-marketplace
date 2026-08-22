@@ -2,7 +2,7 @@
 name: fix-ci
 description: Check GitHub/GitLab CI failures, diagnose root causes, fix them, amend into the existing commit, and push.
 argument-hint: [pr-or-mr-number-or-url]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill
 ---
 
 # Fix CI Failures
@@ -15,6 +15,15 @@ Diagnose and fix CI failures on a pull/merge request. Amend the fix into the exi
 - Repository remote: !`git remote get-url origin 2>/dev/null || echo "(no remote)"`
 
 ## Phase 0 — Setup and Branch Preparation
+
+### Step 0.0 — Load the adjacent-problem policy
+
+Read `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` with the **Read** tool — this skill rewrites
+published history, stashes, and force-pushes, and that file holds the rules for all three.
+
+Then read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md`. CI is where problems
+that are not yours surface most bluntly — a job that was already red before this branch existed
+still blocks the merge. Step 2.4, Step 3.2 and the Rules cite its sections by heading.
 
 ### Step 0.1 — Determine the hosting platform
 
@@ -42,14 +51,17 @@ git status --porcelain
 
 If there are uncommitted changes:
 1. Stash everything: `git stash push --include-untracked -m "fix-ci: auto-stash before CI fix"`
-2. Set an internal flag `STASH_APPLIED=true` so we can restore later.
-3. Inform the user that changes were stashed.
+2. Record which entry that is — `git rev-parse stash@{0}` — per *Stashes* in `lib/git-safety.md`.
+   Position is not identity: anything that stashes between here and Step 5.2 shifts `stash@{0}`,
+   and recording costs one command.
+3. Set an internal flag `STASH_APPLIED=true` so we can restore later.
+4. Inform the user that changes were stashed.
 
 ### Step 0.3 — Locate the PR/MR and switch to its branch
 
 **If `$ARGUMENTS` is provided** (a PR/MR number or URL):
 1. Fetch the PR/MR metadata to find its head branch:
-   - **GitHub**: `gh pr view $ARGUMENTS --json headRefName,number,url,title,state`
+   - **GitHub**: `gh pr view $ARGUMENTS --json headRefName,baseRefName,number,url,title,state`
    - **GitLab**: `glab mr view $ARGUMENTS --output json`
 2. If the current branch is NOT the PR/MR's head branch:
    - Fetch the branch: `git fetch origin <branch>`
@@ -58,11 +70,63 @@ If there are uncommitted changes:
 
 **If `$ARGUMENTS` is NOT provided**:
 1. Find the PR/MR for the current branch:
-   - **GitHub**: `gh pr view --json number,url,title,state,headRefName 2>/dev/null`
+   - **GitHub**: `gh pr view --json number,url,title,state,headRefName,baseRefName 2>/dev/null`
    - **GitLab**: `glab mr view --output json 2>/dev/null`
 2. If no open PR/MR is found for the current branch, **stop** and inform the user.
 
-Record the PR/MR number and URL for use throughout the remaining phases.
+Record the PR/MR number, URL, **and its base branch** for use throughout the remaining phases. The
+base is the PR's target, not the repository default — a PR onto `release/1.2` must not be rebased
+onto `master`. Every `origin/<base>` below means that branch, and Step 0.4 passes it to `/rebase`
+explicitly rather than letting it fall back to the default.
+
+**Then, on either path, record the lease baseline.** Fetch the head branch first, then read its tip:
+
+```
+git fetch origin <branch>
+git rev-parse --verify refs/remotes/origin/<branch>
+```
+
+Every force-push below names that SHA. *Force-pushing safely* in `lib/git-safety.md` explains why
+it is read **after** the fetch rather than before, and what to do if the fetch moves the ref —
+someone has pushed since you last looked, and that has to be reconciled, not adopted as your
+baseline. If the branch is a fork PR head, resolve the real remote as *Is this branch published?*
+describes rather than assuming `origin`.
+
+### Step 0.4 — Rebase onto the latest base
+
+Run **`/rebase <base> --no-push`** before diagnosing anything, naming the PR's base branch. Every force-push below names the SHA
+recorded in Step 0.3, with the remote and refspec spelled out, per *Force-pushing safely*.
+
+CI judged this branch against the base it was cut from. If other work has landed since, the failure
+in front of you may already be fixed upstream, or may have been caused by what landed there —
+diagnosing before syncing wastes the analysis, and the local build and test run in Phase 3 proves
+nothing if it runs against a stale tree.
+
+`--no-push` matters here: this skill is about to amend a fix and force-push anyway, so rebasing
+locally and pushing once in Phase 4 means one CI run instead of two.
+
+`/rebase` stops by itself when the base has not moved, which is the common case — nothing below
+applies then. When it *does* rebase, two consequences follow that the rest of this skill would
+otherwise get wrong:
+
+- **The local branch is now ahead of the remote with rewritten hashes.** Whenever Phase 4 ends up
+  not pushing — every failure was infrastructure, or every failure was pre-existing and the user
+  deferred it — do not just stop and leave the user diverged from `origin`, with their next
+  ordinary `git push` rejected for a rewrite this skill performed and never mentioned.
+
+  Prefer pushing the rebase on its own (same leased form, saying CI will re-run): it
+  keeps the conflict resolutions `/rebase` may have just made. Undo it only if the user asks, and
+  then with `git reset --hard ORIG_HEAD`, which `git rebase` set to the pre-rebase tip. Never
+  `git reset --hard @{u}` — on a branch created as `git checkout -b fix/123 origin/master`, which
+  is exactly what `/work-issue` does, `@{u}` is `origin/master`, so that command throws the entire
+  feature branch away. Either way, say what you did.
+- **The Step 0.2 stash predates the rewrite**, so Step 5.2 pops it onto a different tree than it
+  was taken from and may now conflict where it would not have. Warn on the conflict rather than
+  forcing it, and leave the stash intact.
+
+If `/rebase` stops for any reason — an unresolvable conflict, or a branch that no longer builds or
+passes its suite once rebased — stop with it. That, not the CI failure, is now the thing to deal
+with, and diagnosing CI against a tree whose own suite is red produces nothing trustworthy.
 
 ## Phase 1 — Identify CI Failures
 
@@ -100,7 +164,10 @@ From the CI status, identify all **failed** checks or jobs. For each failure, re
 - **Status** (failed, error, cancelled, timed out)
 - **URL** to the check run or job log
 
-If there are no failures (all checks pass), **stop** and inform the user that CI is green.
+If there are no failures (all checks pass), **stop** and inform the user that CI is green — but if
+Step 0.4 rebased, resolve the divergence it created first, exactly as that step describes. This is
+the earliest and most likely exit (the failure was already fixed on the base, which is precisely
+why the rebase helped), and leaving the branch silently rewritten here would undo the point of it.
 
 ### Step 1.3 — Fetch failure logs
 
@@ -193,7 +260,15 @@ Classify each failure:
 - **Pre-existing**: The failure exists on the base branch too — not caused by this PR/MR.
 - **Infrastructure**: Flaky test, timeout, or CI environment issue — not a code problem.
 
-For **pre-existing** and **infrastructure** failures, note them in the report but do not attempt to fix them.
+**Infrastructure** failures are not code problems — note them in the report and leave them alone.
+They never enter triage; there is nothing to fix, ticket, or branch off for.
+
+**Pre-existing** failures do enter triage. Apply *Classification*, *Sizing an adjacent problem*
+and *Routing an adjacent problem* from `lib/adjacent-problems.md`: small and clearly correct — fix
+it now in its own commit, separate from
+the commits being amended; larger or carrying a design decision — ask, then file a ticket carrying
+the job log and the diagnosis, or suggest a parallel worktree. This matters because a pre-existing
+failure still blocks the merge: reporting it and stopping leaves the PR stuck with no route out.
 
 ## Phase 3 — Implement Fixes
 
@@ -213,11 +288,28 @@ For each **fixable** failure, apply the minimal fix:
 
 After applying all fixes:
 
-1. Build: `cmake --build --preset clang-debug`
-2. Run tests: `ctest --preset=clang-debug`
-3. All tests must pass. If any test fails:
-   - If it is related to the fix, investigate and correct.
-   - If it is a pre-existing failure, note it but do not block on it.
+1. **Build and test with whatever the project actually uses** — a CMake preset
+   (`cmake --build --preset clang-debug`, `ctest --preset=clang-debug`), `cargo test`, `npm test`,
+   `go test ./...`. Read `CLAUDE.md`/`AGENT.md`, the README or the CI workflow to find out rather
+   than assuming C++; `/rebase` just built this tree in Step 0.4 by the same discovery.
+2. **All tests must pass.** If one fails and it is related to the fix, investigate and correct it.
+3. **If it looks pre-existing, confirm that it still is.** Step 0.4 rebased onto the latest base,
+   so "it was already failing" has to be re-checked against what the branch now sits on rather
+   than remembered from before.
+
+   Run the test against the base in a scratch worktree — never by checking the base out here,
+   since the tree holds uncommitted work and a stash may be outstanding:
+
+   ```
+   git worktree add ../<repo>-base-$$ origin/<base>
+   # run the failing test there
+   git worktree remove ../<repo>-base-$$
+   ```
+
+   Give it a unique suffix and remove it when done. A fixed path collides both with the next
+   `/fix-ci` run and with the worktree `/rebase` creates for the same check earlier in the same
+   `/work-issue` loop pass. If it does reproduce on the base, route it through
+   `lib/adjacent-problems.md` rather than only noting it.
 
 ### Step 3.3 — Run formatters if applicable
 
@@ -227,7 +319,18 @@ If the project uses clang-format or similar tools, run them on modified files to
 
 ### Step 4.1 — Amend the commit
 
-Stage all fixed files and amend them into the appropriate commit:
+**If Step 2.4 routed a pre-existing problem into a fix, do not make both fixes and then try to
+split the result.** Apply *Splitting a mixed working tree* from `lib/git-safety.md`: sequence them
+instead, and because one of these commits gets amended, the CI fix goes first.
+
+1. Apply **only** the CI fix, and amend it into the commit it belongs to, using the recipes below.
+2. Then apply the adjacent fix, **re-run the build and suite** (Step 3.2 ran before this fix
+   existed, and Step 4.2 is about to push it), and commit it on its own:
+   ```
+   git add -A && git commit -s -m "<what the adjacent fix repairs>"
+   ```
+
+Amend the CI fix into the appropriate commit:
 
 1. If the branch has a **single commit** ahead of the base:
    ```
@@ -235,19 +338,31 @@ Stage all fixed files and amend them into the appropriate commit:
    git commit --amend --no-edit
    ```
 
-2. If the branch has **multiple commits** and the fix logically belongs to a specific commit:
-   - Use `git stash` to save the fix.
-   - Use `git rebase -i` non-interactively to mark the target commit for editing:
-     ```
-     GIT_SEQUENCE_EDITOR="sed -i 's/^pick <short-sha>/edit <short-sha>/'" git rebase -i origin/<base>
-     ```
-   - Apply the stashed fix: `git stash pop`
-   - Amend: `git add -A && git commit --amend --no-edit`
-   - Continue: `git rebase --continue`
-   - If conflicts arise during rebase, resolve them.
+2. If the branch has **multiple commits** and the fix logically belongs to a specific commit, use a
+   fixup and let git place it, rather than picking commits by hand:
+   ```
+   git add -A
+   git commit --fixup=<target-sha>
+   git -c sequence.editor=true rebase -i --autosquash --autostash origin/<base>
+   ```
+   Use that form, not `GIT_SEQUENCE_EDITOR=true git rebase --autosquash`: bare `--autosquash`
+   without `-i` is only honoured from git 2.45, and on anything older the fixup is silently not
+   squashed. `/absorb` uses the same portable form.
+   Then confirm the fixup was actually consumed:
+   ```
+   git log --oneline origin/<base>..HEAD      # no "fixup!" subject may survive
+   ```
+   A surviving `fixup!` means either the `--fixup` named a commit outside this range — a SHA read
+   before Step 0.4's rebase rewrote the branch, or one already merged into the base — or the git in
+   use predates 2.45 and ignored `--autosquash`. Step 4.2 would push it to the PR either way.
 
-3. If the fix does not logically belong to any specific commit (e.g., a formatting fix),
-   amend it into the **last** commit:
+   The autosquash can also conflict, and a failed one leaves the repository mid-rebase on a
+   detached HEAD. Resolve and `git rebase --continue`, or `git rebase --abort` and say so — but
+   never carry on while `git status` still reports a rebase in progress. `/absorb` does the same
+   thing per hunk when the fix spans several commits, and guards the same way.
+
+3. If the fix does not logically belong to any specific commit (e.g. a formatting fix), amend it
+   into the **last** commit:
    ```
    git add -A
    git commit --amend --no-edit
@@ -257,12 +372,20 @@ Stage all fixed files and amend them into the appropriate commit:
 
 Push the amended commit(s) to the remote:
 ```
-git push --force-with-lease
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.3> origin <branch>
 ```
 
-Use `--force-with-lease` (not `--force`) to prevent accidentally overwriting concurrent changes by others.
+Per *Force-pushing safely* in `lib/git-safety.md`: explicit SHA, named remote and refspec, and stop
+rather than escalate if the lease rejects.
 
 ## Phase 5 — Cleanup
+
+**Run this phase on every exit, not only the successful one.** Per *Stashes* in
+`lib/git-safety.md`: Step 0.2 may have stashed the user's work and Step 0.3 may have moved them off
+their branch, and this skill has several early stops — CI already green (Step 1.2), `/rebase`
+stopping (Step 0.4), every failure infrastructure, every failure pre-existing and deferred. Each
+must restore the branch and the stash before returning, or the user is left somewhere they did not
+ask to be with their work parked in an entry nobody named.
 
 ### Step 5.1 — Restore original branch if switched
 
@@ -272,7 +395,8 @@ If `SWITCHED_BRANCH=true`:
 ### Step 5.2 — Restore stashed changes
 
 If `STASH_APPLIED=true`:
-1. Pop the stash: `git stash pop`
+1. Pop **the entry whose SHA you recorded in Step 0.2**, following *Stashes* in
+   `lib/git-safety.md` — by identity, not by position.
 2. Inform the user that their stashed changes have been restored.
 3. If the stash pop fails (conflicts), inform the user and leave the stash intact.
 
@@ -298,6 +422,8 @@ For each failure:
 
 ### Unfixed Failures
 - List any failures that were not fixed, with explanation (pre-existing, infrastructure, etc.).
+- For each pre-existing failure, state where triage sent it: fixed in which commit, filed as which
+  ticket, suggested as which worktree, or declined and why.
 
 ### Build & Test Results
 - Local build status (pass/fail).
@@ -314,12 +440,26 @@ For each failure:
 
 ## Rules
 
-- ALWAYS use `--force-with-lease` instead of `--force` when pushing amended commits.
+- ALWAYS use `--force-with-lease=<branch>:<sha>` with the SHA recorded in Step 0.3, never `--force`
+  and never a bare lease.
+- ALWAYS resolve the Step 0.4 divergence before any exit that does not push.
+- ALWAYS rebase onto the latest base before diagnosing — a failure judged against a stale base is
+  a failure you may not have.
 - NEVER introduce behavioral changes beyond what is needed to fix the CI failure.
 - NEVER skip the local build/test verification step.
-- NEVER leave the working tree in a dirty or unexpected state — always restore stashes and return to the original branch.
+- NEVER leave the working tree in a dirty or unexpected state — always restore stashes and return
+  to the original branch, and never leave the branch silently diverged from its remote after a rebase.
+- NEVER `git add -A` a tree that mixes the adjacent fix with the CI fix. Staging `-A` when the
+  adjacent fix is the *only* thing in the tree is the prescribed step — the ban is on the mixture.
 - NEVER silently discard local changes — always stash and restore.
 - If a CI failure is due to a flaky test or infrastructure issue (not a code defect), do NOT modify any code. Report it as an infrastructure issue in the summary.
-- If ALL failures are pre-existing or infrastructure-related, skip the amend/push steps and only produce the summary report.
+- If ALL failures are infrastructure-related, skip the amend step and only produce the summary
+  report — but if Step 0.4 rebased, resolve the resulting divergence as that step describes rather
+  than leaving the branch ahead of its remote.
+- If ALL failures are pre-existing, do not stop at the summary — route them through
+  `lib/adjacent-problems.md` so the user gets options (fix now, ticket, parallel worktree) rather
+  than a blocked PR and no next step. If they defer and nothing is pushed, resolve the Step 0.4
+  divergence exactly as that step describes; a deferred failure is still no reason to leave the
+  branch silently rewritten.
 - When amending commits, preserve the original commit message and author information (`--no-edit`).
 - When in doubt about whether a test failure is caused by the PR/MR changes, compare the same test on the base branch before modifying anything.

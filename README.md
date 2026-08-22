@@ -58,13 +58,14 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | `/address-review` | Works through review comments one by one: investigates, applies the valid ones, and explains why the rest are wrong. Commits the result. |
 | `/review-branch` | Reviews a whole branch through a C++23 lens — idioms, const correctness, naming, coverage, performance, risk rating. |
 | `/cpp-review` | Correctness-focused review of a C++ change — a PR, a diff, or pasted code. Reads outward from the diff (ownership, threading, callers, the project's real language standard) before judging, compiles stubbed reductions to verify compile-level claims, and reports severity-tiered findings. Complements `/review-branch`, which sweeps a whole branch for idiom and conventions. |
-| `/fix-ci` | Pulls failing CI logs, diagnoses root causes, fixes them, amends, and pushes. |
+| `/fix-ci` | Pulls failing CI logs, diagnoses root causes, fixes them, amends, and pushes. Rebases onto the latest base first, so it never diagnoses a failure judged against a stale tree. |
+| `/rebase` | Rebases the branch onto the latest origin base, resolving conflicts with intent and proving the result still builds and passes its suite before force-pushing with a lease. |
 
 ### Issues
 
 | Skill | What it does |
 |---|---|
-| `/work-issue <n>` | Takes an issue to a committed branch. Reads everything it links to, classifies it bug/feature/chore, then reproduces-and-regression-tests or designs-and-tests accordingly. |
+| `/work-issue <n>` | Takes an issue all the way to a green PR. Reads everything it links to, challenges whether it is worth building as written, classifies it bug/feature/chore, plans it for approval, then implements phase by phase behind `/simplify` and `/code-review` gates before opening the PR and driving CI green. |
 
 ### C++
 
@@ -178,7 +179,12 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    ---
    ```
 3. Keep `allowed-tools` as tight as the skill actually needs. The subagent tool is named
-   `Agent` (not `Task`).
+   `Agent` (not `Task`). Scoped `Bash(git:*)`-style patterns are the default; bare `Bash` is
+   justified only where the command set genuinely cannot be enumerated — `/rebase` must build with
+   whatever the repository uses (`cargo`, `go`, `npm`, `make`, a CMake preset), `/work-issue`
+   and `/fix-ci` inherit that because they invoke it, and `/address-review` needs it for its own
+   build-and-test step. If a skill invokes another, its `allowed-tools`
+   has to cover what the callee runs, so widen deliberately and say why rather than by reflex.
 4. Bundle supporting scripts next to `SKILL.md` and reference them via
    `${CLAUDE_PLUGIN_ROOT}` — never `~/.claude/...`. Plugins run from a cache directory, so
    absolute home paths break on install:
@@ -189,8 +195,25 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    `lib/pr-conventions.md` and cite its sections by heading. Platform detection, branch handling,
    the changelog label rule, and the title/body composition rules live there so that `/create-pr`,
    `/draft-pr`, and `/update-pr` cannot drift apart. Improvements belong in that file.
-6. Add it to the table above.
-7. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
+6. If the skill can turn up a real problem that is not the one it was asked about — a pre-existing
+   bug, a finding in untouched code, a CI job that was already red — read
+   `lib/adjacent-problems.md` and cite its sections rather than inventing another private version
+   of "note it and move on". That file's own header says which skills act on the policy and which
+   only borrow its *Classification* vocabulary; which group a new skill joins follows from whether
+   it commits.
+7. If the skill needs the branch on top of a base that may have moved, invoke `/rebase` rather than
+   open-coding `git rebase` — conflict handling, verification, and the `--force-with-lease`
+   semantics live there. Two git details it settles are worth knowing before you hand-roll any of
+   this: a branch made with `git checkout -b x origin/master` has an `@{upstream}` but no remote
+   branch of its own, so `@{upstream}` is the wrong test for "is this published"; and a bare
+   `--force-with-lease` is defeated by any fetch, so name the expected SHA.
+8. If the skill implements a change in stages, read `lib/phase-gates.md` for what a plan must
+   contain and how a phase is closed, rather than defining your own gate.
+9. If the skill publishes a branch, rewrites history, stashes, or has to separate two changes in
+   one tree, read `lib/git-safety.md` and cite its sections. Every rule in it exists because four
+   skills each derived it independently and at least one got it wrong.
+10. Add it to the table above.
+11. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
    the entry in `.claude-plugin/marketplace.json`. The version is pinned, so users receive
    nothing until it changes.
 

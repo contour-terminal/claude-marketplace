@@ -14,6 +14,12 @@ use-after-free that happens to land on still-mapped memory, signed overflow the 
 entitled to exploit, a race that only loses on a loaded machine. Ordinary green tests say
 nothing about any of it.
 
+## Step 0 — Load the adjacent-problem policy
+
+Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool before diagnosing
+anything. Sanitizers overwhelmingly surface bugs that predate the change under test, so *what to do
+with a finding that is not yours* is the common case here, not the exception. Step 4 and Step 6 cite its sections by heading.
+
 ## Which sanitizer to run
 
 | Sanitizer | Catches | Cost |
@@ -103,9 +109,13 @@ A sanitizer report is a *starting point*, not a conclusion. For each finding:
 2. **Read the implicated code** and determine the real defect: who owns the memory, what
    invariant broke, which lifetime ended early.
 3. **Classify:**
-   - **Real bug in the change under test** — fix it.
-   - **Real pre-existing bug** — report it with file:line; fix only if in scope, otherwise
-     flag it clearly for follow-up.
+   - **Real bug in the change under test** — in-scope. Fix it.
+   - **Real pre-existing bug** — label it **adjacent** using *Classification* from
+     `lib/adjacent-problems.md`, and report it with the stack and the diagnosis. This skill has no
+     commit step, so it does not route: it fixes only what is in scope, and hands the adjacent
+     finding to whoever is committing — `/work-issue` and `/fix-ci` both know what to do with it.
+     A finding that makes the change under test unverifiable is a **blocker**, not adjacent — say
+     so and stop.
    - **Third-party / system library** — likely needs a suppression, not a fix. Confirm the
      stack genuinely leaves first-party code before concluding this.
    - **False positive** — genuinely rare. Requires an explicit argument for why the tool is
@@ -136,7 +146,8 @@ Finally, confirm the ordinary (non-sanitizer) test suite still passes.
   (TSan especially).
 - **Findings** — one entry each: type, location (file:line), root cause, classification.
 - **Fixes applied** — what changed and why.
-- **Left open** — pre-existing or third-party issues, with enough detail to file them.
+- **Adjacent findings** — every pre-existing bug, with enough detail for the caller to route or
+  file it: location, stack, diagnosis. Third-party issues belong here too.
 - **Coverage caveat** — sanitizers only observe *executed* code. If the suite does not
   exercise the changed path, a clean run proves nothing. Say so explicitly when it applies.
 - **Risk assessment** — Low / Medium / High.
@@ -150,4 +161,7 @@ Finally, confirm the ordinary (non-sanitizer) test suite still passes.
 - NEVER conclude "false positive" without a concrete argument for why the tool is wrong.
 - ASan and TSan cannot share a build tree.
 - Prefer the project's existing preset over ad-hoc flags.
+- NEVER fix a pre-existing bug silently alongside the change under test; report it as adjacent and
+  let the caller decide — this skill does not commit, and improvising one is what
+  `lib/adjacent-problems.md` exists to prevent.
 - A clean sanitizer run over code the tests never execute is not evidence of correctness.

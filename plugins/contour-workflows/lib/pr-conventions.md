@@ -135,11 +135,16 @@ Guidelines:
 
 ## Portability rules
 
-These hold for every skill that reads this file:
+These bind the operations described in this file — opening, updating and pushing for a PR — for
+every skill that reads it. They are not a claim about everything the invoking workflow may do: a
+skill that calls `/create-pr` and later rebases its own branch is not in breach, because the rebase
+is not one of these operations. `/work-issue` is the live example.
 
-- **NEVER force-push.**
-- **NEVER modify source files.** These skills perform git operations (branch, commit, push) and
-  PR/MR metadata operations — nothing else.
+- **NEVER force-push as part of opening or updating a PR.** Publishing a branch for review is
+  never a history rewrite. Rebasing that branch afterwards is a separate operation with its own
+  rules — see `/rebase`.
+- **NEVER modify source files while doing them.** These operations are git plumbing (branch,
+  commit, push) and PR/MR metadata — nothing else.
 - **NEVER hardcode an identity.** Use `git commit -s` so the `Signed-off-by:` trailer comes from
   whoever is actually committing.
 - **NEVER assume the default branch name.** Resolve it — see *Resolving the base branch*.

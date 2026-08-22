@@ -24,11 +24,23 @@ than into a single commit. This is the manual equivalent of `git absorb`: per-hu
 1. **Nothing to absorb?** If there are no staged or unstaged changes to tracked files,
    report that and stop. (Untracked files can never be absorbed — see Step 2.)
 
-2. **Refuse on the default branch.** Resolve the default branch from the context above
-   (fall back to `main`, then `master`). If the current branch *is* it, stop: this skill
-   rewrites history and the mainline is shared. Recommend `/commit` instead.
+2. **Refuse on the default branch.** Apply *Force-pushing safely* → "Never rewrite the default
+   branch" from `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` (read it with the **Read** tool): strip
+   the `origin/` prefix before comparing, and stop rather than guessing if it cannot be resolved.
+   If the current branch *is* the default branch, stop — this skill rewrites history and the
+   mainline is shared. Recommend `/commit` instead.
 
-3. **Determine the absorb range.** The candidate commits are exactly those unique to this
+3. **If the branch is published, record its lease baseline.** Apply *Is this branch published?*,
+   then fetch that branch and record its tip — Step 5 needs the value, and Step 4's rebase will
+   have rewritten everything by then:
+   ```
+   git fetch origin <branch>
+   git rev-parse --verify refs/remotes/origin/<branch>
+   ```
+   If the fetch moves the ref, somebody has pushed to the branch; stop and reconcile rather than
+   absorbing on top of it.
+
+4. **Determine the absorb range.** The candidate commits are exactly those unique to this
    branch:
    ```
    git merge-base HEAD origin/<default-branch>
@@ -36,10 +48,10 @@ than into a single commit. This is the manual equivalent of `git absorb`: per-hu
    ```
    If the range is empty, stop — there is nothing on this branch to absorb into.
 
-4. **Exclude merge commits** from the candidate set (`git log --no-merges`). A fixup can
+5. **Exclude merge commits** from the candidate set (`git log --no-merges`). A fixup can
    never target a merge.
 
-5. **Foreign authorship.** If any candidate commit's author (`%ae`) differs from
+6. **Foreign authorship.** If any candidate commit's author (`%ae`) differs from
    `git config user.email`, note it now; you will need to warn before targeting it.
 
 ## Step 1 — Map each hunk to its base commit
@@ -125,13 +137,16 @@ git log --oneline <merge-base>..HEAD
 Absorbing rewrites every commit from the earliest target onward, so a published branch
 needs a force push:
 ```
-git push --force-with-lease
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.3> origin <branch>
 ```
 
-Only do this if the branch already has an upstream **and** is a personal topic/PR branch.
-`--force-with-lease` aborts if someone else pushed meanwhile. **Never** a bare `--force` —
-if the lease check rejects, stop and report; someone else's work is on that branch. If the
-branch was never pushed, do not push. That is the user's call.
+Only do this if the branch is **published** and is a personal topic/PR branch. Apply
+*Is this branch published?* and *Force-pushing safely* from `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md`
+(read it with the **Read** tool): the test is the branch's own remote ref rather than `@{upstream}`,
+and the push names an expected SHA plus the remote and refspec.
+
+**Never** a bare `--force` — if the lease rejects, stop and report; someone else's work is on that
+branch. If the branch was never pushed, do not push. That is the user's call.
 
 ## Step 6 — Report
 
@@ -150,7 +165,8 @@ Show the final `git log --oneline <merge-base>..HEAD` and `git status --short`.
 - NEVER target a merge commit.
 - NEVER fall back to amending `HEAD` for changes you could not attribute — leave them.
 - NEVER use interactive git flags that open an editor or prompt (`git add -p`, bare `rebase -i`).
-- NEVER use bare `git push --force` — always `--force-with-lease`.
+- NEVER force-push except as *Force-pushing safely* in `lib/git-safety.md` describes.
+- NEVER decide a branch is published from `@{upstream}`.
 - NEVER skip hooks (`--no-verify`).
 - Do not stage files that likely contain secrets.
 - Commit messages are never reworded here; a fixup keeps the target's message. Use

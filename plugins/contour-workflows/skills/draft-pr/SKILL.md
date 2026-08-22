@@ -108,9 +108,10 @@ Output the draft PR/MR URL, and tell the user how to promote it when the branch 
 
 ## Rules
 
-- Follow *Portability rules* from the conventions file — in particular: never force-push, and never
-  modify source files. This skill only performs git operations (branch, commit, push) and PR
-  creation.
+- Follow *Portability rules* from the conventions file. They scope to the operations described
+  there: this skill only performs git plumbing (branch, commit, push) and PR creation, and does
+  neither a force-push nor a source edit while doing them. A caller that rebases its own branch
+  before or after invoking this skill is not in breach — see `/rebase`.
 - NEVER create a PR from `master` or `main` — if on main with uncommitted changes, create a feature
   branch first (Step 2).
 - NEVER downgrade an existing ready PR to draft (Step 3). Report and stop instead.

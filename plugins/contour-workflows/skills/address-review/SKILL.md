@@ -2,7 +2,7 @@
 name: address-review
 description: Address code review comments on a GitHub or GitLab pull/merge request. Investigates each comment, applies valid suggestions, and explains why invalid ones are incorrect. Commits all adaptations.
 argument-hint: [pr-number-or-url]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
 # Address Code Review Comments
@@ -16,6 +16,16 @@ thoroughly, apply valid suggestions, and explain why invalid ones are incorrect.
 - Repository remote: !`git remote get-url origin 2>/dev/null || echo "(no remote)"`
 
 ## Phase 0 — Detect Platform and Locate the PR/MR
+
+### Step 0.0 — Load the adjacent-problem policy
+
+Read `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` with the **Read** tool — Phase 4 has to commit two
+changes separately out of one working tree, and that file says how (and why not to try splitting).
+
+Then read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md`. Reviewers routinely
+point at code near the change rather than the change itself — "while you're here, this is wrong
+too" — and that is an adjacent problem with a procedure behind it, not a judgement call to improvise.
+Step 2.4 and Step 3.2 cite its sections by heading.
 
 ### Step 0.1 — Determine the hosting platform
 
@@ -150,6 +160,14 @@ For each comment, arrive at one of these verdicts:
 - **DECLINE**: The reviewer is incorrect or the suggestion would make the code worse. Prepare a clear, respectful explanation of why.
 - **QUESTION**: The comment is ambiguous or requires more context from the reviewer. Note what clarification is needed.
 - **NOT APPLICABLE**: The comment is about something already resolved, outdated, or a misunderstanding of the code.
+- **ADJACENT**: The reviewer is correct, but about code this branch did not change — the common
+  "while you're here" comment. Do not silently absorb it into the review commit and do not brush it
+  off. Apply *Sizing an adjacent problem* and *Routing an adjacent problem* from
+  `lib/adjacent-problems.md`: small and clearly correct — fix
+  it now in its own commit, so the reviewer can see it separately from the feedback changes; larger
+  or carrying a design decision — ask, then file a ticket or suggest a parallel worktree, and reply
+  to the reviewer saying which. Declining to widen a PR is a legitimate answer; declining *without
+  saying where the problem went* is not.
 
 ## Phase 3 — Apply Accepted Changes
 
@@ -157,7 +175,9 @@ For each comment, arrive at one of these verdicts:
 
 For each comment with verdict ACCEPT or ACCEPT WITH MODIFICATION:
 
-1. Make the code change using the Edit tool.
+1. Make the code change using the Edit tool — the ACCEPT and ACCEPT WITH MODIFICATION changes
+   only. Leave any **ADJACENT** edit to Phase 4, which makes and commits it *after* the review
+   commit exists. Applying both here produces a mixed tree that cannot be split afterwards.
 2. If the reviewer used a suggestion block, apply it exactly (for ACCEPT) or with your modifications (for ACCEPT WITH MODIFICATION).
 3. Maintain consistent code style (run through project formatting if applicable).
 4. If a change in one location requires corresponding changes elsewhere (e.g., updating call sites, header declarations), make all necessary related changes.
@@ -170,13 +190,25 @@ After applying all changes:
 2. Run the test suite to ensure no regressions.
 3. If any test fails, investigate whether the failure is caused by your changes:
    - If yes, fix the issue while staying true to the reviewer's intent.
-   - If no (pre-existing failure), note it but do not block on it.
+   - If no (pre-existing failure), it is adjacent, not yours — apply *Classification* and
+     *Routing an adjacent problem* from `lib/adjacent-problems.md` rather than only noting it. But if the failure
+     makes it impossible to tell whether the review changes are correct, it is a **blocker**:
+     say so and stop instead of reporting a green you cannot vouch for.
 
 ## Phase 4 — Commit
 
 ### Step 4.1 — Create the commit
 
-Stage all modified files and create a single commit with a descriptive message:
+**The review changes are committed here; any adjacent fix is a separate commit made afterwards.**
+A fix made for an ADJACENT comment answers something the branch was not about, so folding it into
+the review commit hides it from the reviewer who asked and makes it unrevertable on its own.
+
+Do not make both and then try to split the tree — the "while you're here" comment is common
+precisely *because* the reviewer is already looking at a file the branch touched, so the two edits
+routinely share a file. Apply *Splitting a mixed working tree* from
+`${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md`: sequence them instead.
+
+First, stage the review changes and create a single commit with a descriptive message:
 
 ```
 git commit -s -m "$(cat <<'EOF'
@@ -191,6 +223,15 @@ EOF
 ```
 
 If there are many changes, group them logically in the commit body.
+
+**Then, and only then**, make the adjacent edit, re-run the build and suite from Step 3.2 — which
+ran before this fix existed — and commit it on its own:
+
+```
+git add -A && git commit -s -m "<what the adjacent fix repairs>"
+```
+
+Keep the review framing out of that message.
 
 ## Phase 5 — Summary Report
 
@@ -227,7 +268,11 @@ For each review comment, report:
 ### Build & Test Results
 - Build status (pass/fail).
 - Test suite status (pass/fail, number of tests run).
-- Any pre-existing test failures noted.
+- Any pre-existing test failures, and where triage sent each one.
+
+### Adjacent Findings
+- For each ADJACENT verdict: what the reviewer spotted, and the outcome — fixed in which commit,
+  filed as which ticket, suggested as which worktree, or declined and why.
 
 ### Risk Assessment
 - **Risk level**: Low / Medium / High.
@@ -240,6 +285,8 @@ For each review comment, report:
 - NEVER dismiss or resolve review threads on the platform — let the reviewer do that.
 - NEVER post replies to review comments automatically — only prepare reply text for the user to post.
 - NEVER apply changes that you cannot verify are correct.
+- NEVER fold an adjacent fix into the review commit — it gets its own, so the reviewer can see
+  what answered their feedback and what did not.
 - NEVER skip the build/test verification step.
 - When declining a reviewer's suggestion, be respectful and technically precise. The goal is
   constructive discourse, not winning an argument.
