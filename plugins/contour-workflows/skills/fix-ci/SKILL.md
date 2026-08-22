@@ -48,8 +48,10 @@ git status --porcelain
 
 If there are uncommitted changes:
 1. Stash everything: `git stash push --include-untracked -m "fix-ci: auto-stash before CI fix"`
-2. Set an internal flag `STASH_APPLIED=true` so we can restore later.
-3. Inform the user that changes were stashed.
+2. Record which entry that is — `git rev-parse stash@{0}` — because Step 4.1 and `/rebase` both
+   create stashes of their own, so by Step 5.2 `stash@{0}` is often not yours.
+3. Set an internal flag `STASH_APPLIED=true` so we can restore later.
+4. Inform the user that changes were stashed.
 
 ### Step 0.3 — Locate the PR/MR and switch to its branch
 
@@ -57,7 +59,13 @@ If there are uncommitted changes:
 1. Fetch the PR/MR metadata to find its head branch:
    - **GitHub**: `gh pr view $ARGUMENTS --json headRefName,number,url,title,state`
    - **GitLab**: `glab mr view $ARGUMENTS --output json`
-2. If the current branch is NOT the PR/MR's head branch:
+2. **Record the branch's remote tip now, before fetching it** —
+   `git rev-parse --verify refs/remotes/origin/<branch>`. Every force-push below names this SHA in
+   its lease, and the fetch on the next line is exactly what would spoil the value: it refreshes
+   the tracking ref, so a SHA read afterwards may already contain a colleague's push and the lease
+   built from it would wave that push through. If the ref does not exist the branch is not
+   published, and nothing here should push at all.
+3. If the current branch is NOT the PR/MR's head branch:
    - Fetch the branch: `git fetch origin <branch>`
    - Check it out: `git checkout <branch>`
    - Set an internal flag `SWITCHED_BRANCH=true` and remember the original branch name.
@@ -72,20 +80,8 @@ Record the PR/MR number and URL for use throughout the remaining phases.
 
 ### Step 0.4 — Rebase onto the latest base
 
-First record the branch's remote tip. This has to happen **before Step 0.3's `git fetch`**, not
-just before `/rebase` — any fetch updates the tracking ref, so a SHA read afterwards may already
-include a colleague's push and the lease built from it would wave that push through:
-
-```
-git rev-parse --verify refs/remotes/origin/<branch>
-```
-
-Every force-push in this skill names that SHA — `git push --force-with-lease=<branch>:<sha>`. A
-bare `--force-with-lease` trusts the remote-tracking ref, which the fetch below has already
-refreshed, so it would happily agree with a colleague's push instead of refusing it. If the ref
-does not exist the branch is not published and nothing here should be pushing at all.
-
-Then run **`/rebase --no-push`** before diagnosing anything.
+Run **`/rebase --no-push`** before diagnosing anything. Every force-push below names the SHA
+recorded in Step 0.3 — `git push --force-with-lease=<branch>:<sha>`.
 
 CI judged this branch against the base it was cut from. If other work has landed since, the failure
 in front of you may already be fixed upstream, or may have been caused by what landed there —
@@ -312,9 +308,9 @@ Sequence the work instead — the fixes are yours to make, so make them one at a
    ```
 
 That order matters: committing the adjacent work first makes it HEAD, and every `--amend` below
-would then land on the wrong commit. If the adjacent fix is already sitting in the tree and lives
-in *different files*, `git stash push --include-untracked -- <its paths>` parks it cleanly; if it
-shares a file with the CI fix, revert it and redo it in step 2.
+would then land on the wrong commit. If both fixes are already sitting in the tree together, revert
+the adjacent one and redo it in step 2 — that is simpler and safer than parking it in a stash whose
+lifecycle then has to be tracked through an amend, a possible rebase, and every early exit.
 
 Amend the CI fix into the appropriate commit:
 
@@ -331,10 +327,18 @@ Amend the CI fix into the appropriate commit:
    git commit --fixup=<target-sha>
    GIT_SEQUENCE_EDITOR=true git rebase --autosquash origin/<base>
    ```
-   The autosquash can conflict, and a failed one leaves the repository mid-rebase on a detached
-   HEAD. Resolve and `git rebase --continue`, or `git rebase --abort` and say so — but never carry
-   on to the next step while `git status` still reports a rebase in progress. `/absorb` does the
-   same thing per hunk when the fix spans several commits.
+   Then confirm the fixup was actually consumed:
+   ```
+   git log --oneline origin/<base>..HEAD      # no "fixup!" subject may survive
+   ```
+   A `--fixup` naming a commit outside this range — a SHA read before Step 0.4's rebase rewrote
+   the branch, or one already merged into the base — rebases cleanly and leaves the literal
+   `fixup!` commit in place, which Step 4.2 would then push to the PR.
+
+   The autosquash can also conflict, and a failed one leaves the repository mid-rebase on a
+   detached HEAD. Resolve and `git rebase --continue`, or `git rebase --abort` and say so — but
+   never carry on while `git status` still reports a rebase in progress. `/absorb` does the same
+   thing per hunk when the fix spans several commits, and guards the same way.
 
 3. If the fix does not logically belong to any specific commit (e.g. a formatting fix), amend it
    into the **last** commit:
@@ -347,7 +351,7 @@ Amend the CI fix into the appropriate commit:
 
 Push the amended commit(s) to the remote:
 ```
-git push --force-with-lease=<branch>:<sha-recorded-in-step-0.4>
+git push --force-with-lease=<branch>:<sha-recorded-in-step-0.3>
 ```
 
 Use `--force-with-lease` (not `--force`) to prevent accidentally overwriting concurrent changes by
@@ -364,11 +368,10 @@ If `SWITCHED_BRANCH=true`:
 ### Step 5.2 — Restore stashed changes
 
 If `STASH_APPLIED=true`:
-1. Pop **the entry you created in Step 0.2**, not whatever is on top. Step 4.1 may have parked an
-   adjacent fix, and `/rebase` stashes too, so `stash@{0}` is frequently somebody else's. Record
-   `git rev-parse stash@{0}` when you push the stash in Step 0.2, then find it again with
-   `git stash list --format='%H %gd'` and pop that `stash@{n}` — `git stash pop <sha>` is not
-   valid git and errors with "is not a stash reference".
+1. Pop **the entry whose SHA you recorded in Step 0.2**, not whatever is on top — `/rebase` stashes
+   too, so `stash@{0}` is frequently somebody else's. Find it again with
+   `git stash list --format='%H %gd'` and pop that `stash@{n}`; `git stash pop <sha>` is not valid
+   git and errors with "is not a stash reference".
 2. Inform the user that their stashed changes have been restored.
 3. If the stash pop fails (conflicts), inform the user and leave the stash intact.
 
@@ -412,7 +415,7 @@ For each failure:
 
 ## Rules
 
-- ALWAYS use `--force-with-lease=<branch>:<sha>` with the SHA recorded in Step 0.4, never `--force`
+- ALWAYS use `--force-with-lease=<branch>:<sha>` with the SHA recorded in Step 0.3, never `--force`
   and never a bare lease.
 - ALWAYS resolve the Step 0.4 divergence before any exit that does not push.
 - ALWAYS rebase onto the latest base before diagnosing — a failure judged against a stale base is

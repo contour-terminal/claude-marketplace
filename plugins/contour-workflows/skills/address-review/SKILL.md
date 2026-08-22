@@ -2,7 +2,7 @@
 name: address-review
 description: Address code review comments on a GitHub or GitLab pull/merge request. Investigates each comment, applies valid suggestions, and explains why invalid ones are incorrect. Commits all adaptations.
 argument-hint: [pr-number-or-url]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
 # Address Code Review Comments
@@ -173,9 +173,9 @@ For each comment, arrive at one of these verdicts:
 For each comment with verdict ACCEPT or ACCEPT WITH MODIFICATION:
 
 1. Make the code change using the Edit tool. Do the ACCEPT and ACCEPT WITH MODIFICATION changes
-   first, as one pass. Then, separately, any **ADJACENT** comment Step 2.4 sized as small enough to
-   fix now — a second pass, committed on its own in Phase 4. Doing them in one pass produces a
-   mixed tree that cannot be split afterwards.
+   first, as one pass, and let Phase 4 commit them. Only then make any **ADJACENT** edit Step 2.4
+   sized as small enough to fix now, and commit that separately. Applying both in one pass produces
+   a mixed tree that cannot be split afterwards.
 2. If the reviewer used a suggestion block, apply it exactly (for ACCEPT) or with your modifications (for ACCEPT WITH MODIFICATION).
 3. Maintain consistent code style (run through project formatting if applicable).
 4. If a change in one location requires corresponding changes elsewhere (e.g., updating call sites, header declarations), make all necessary related changes.
@@ -206,15 +206,15 @@ precisely *because* the reviewer is already looking at a file the branch touched
 routinely share a file — and a mixed tree cannot be separated non-interactively (`git add -p`
 prompts per hunk and has no stdin here; `/absorb` bans it by name).
 
-Sequence them instead. In Step 3.1 apply the ACCEPT changes and the adjacent ones as separate
-passes, committing between:
+Sequence them instead, in the order Step 3.1 applies them: the review changes go in first and get
+the commit below, and only then are the adjacent edits made and committed on their own:
 
 ```
 git add -A && git commit -s -m "<what the adjacent fix repairs>"
 ```
 
-Keep the review framing out of that message. Then stage the review changes and create a single
-commit with a descriptive message:
+Keep the review framing out of that message. First, though, stage the review changes and create a
+single commit with a descriptive message:
 
 ```
 git commit -s -m "$(cat <<'EOF'

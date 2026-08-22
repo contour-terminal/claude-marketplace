@@ -37,8 +37,9 @@ Then close every phase the same way, before starting the next:
    bugs; that is step 4's job.
 3. **Commit the phase**, with `-s` and a message describing what it did; adjacent fixes go in their
    own commits, per the policy. This is what gives step 4 a range to name and an adjacent fix
-   somewhere to land. If this is the phase that delivers what the issue asked for, put the
-   `Fixes #N` trailer on **now** — see Phase 5 for the shape. Adding it later means rewording a
+   somewhere to land. If this is the phase that delivers the thing the work was
+   commissioned for, put any issue-closing trailer on **now**, in the shape the calling skill
+   specifies. Adding it later means rewording a
    commit that is no longer the tip, and there is no clean non-interactive way to do that.
 4. **`/code-review medium <phase-base>..HEAD`.** Name both. Without the level it reuses whichever
    ran last, and a gate whose depth depends on unrelated history is not a gate; without the range
@@ -50,6 +51,6 @@ Then close every phase the same way, before starting the next:
    are *adjacent*: route them through `lib/adjacent-problems.md` rather than absorbing them
    silently or ignoring them. A finding deliberately declined is recorded, not dropped.
 
-**When the plan is a single phase**, the phase gate and the final pass in Phase 3 cover the same
-code. Run the gate once, at the deeper level, and skip the duplicate — reviewing a two-line diff
+**When the plan is a single phase**, the phase gate and the calling skill's final whole-branch
+review cover the same code. Run the gate once, at the deeper level, and skip the duplicate — reviewing a two-line diff
 twice is ceremony, not rigour.

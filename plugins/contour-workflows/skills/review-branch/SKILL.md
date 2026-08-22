@@ -76,13 +76,13 @@ Evaluate every changed hunk against **each** of the following categories. For ea
 
 Provide a concise summary table:
 
-| Category | Findings | Severity | Scope |
-|---|---|---|---|
-| Code quality | … | … | … |
-| C++23 opportunities | … | … | … |
-| Naming &amp; API shape | … | … | … |
-| Test coverage | … | … | … |
-| Performance | … | … | … |
-| Risk | … | … | … |
+| Category | Findings | Severity |
+|---|---|---|
+| Code quality | … | … |
+| C++23 opportunities | … | … |
+| Naming &amp; API shape | … | … |
+| Test coverage | … | … |
+| Performance | … | … |
+| Risk | … | … |
 
 End with an overall verdict: **Approve**, **Approve with suggestions**, or **Request changes**, along with a brief rationale.

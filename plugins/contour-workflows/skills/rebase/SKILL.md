@@ -31,9 +31,10 @@ still work afterwards.
 Nothing here touches the repository. Do it all before Step 1 fetches, because two of these
 recordings are only correct while no fetch has happened yet.
 
-1. **Resolve the base.** Strip flags from `$ARGUMENTS` first — `--no-push` is a flag, not a branch,
-   and callers pass it alone (`/rebase --no-push` is `/fix-ci`'s only invocation). If what remains
-   names a branch, use it; otherwise take the repository's default branch (below).
+1. **Split `$ARGUMENTS` into flags and a base.** `--no-push` is a flag, not a branch, and callers
+   pass it alone (`/rebase --no-push` is `/fix-ci`'s only invocation). Separate them — do not
+   discard the flag, Step 5 still needs to know it was given — and if what remains names a branch,
+   use it; otherwise take the repository's default branch (below).
 
    Verify it exists on the remote, and test the **output**, not the exit status:
 
@@ -108,9 +109,11 @@ changes:
 
 ```
 git stash push --include-untracked -m "rebase: auto-stash"
+git rev-parse stash@{0}        # record it; Step 6 pops by identity, not by position
 ```
 
-Remember that you did, and tell the user — silently pocketing someone's work in progress is how it
+Record that SHA rather than trusting `stash@{0}` later: this skill is usually invoked *from*
+`/work-issue` or `/fix-ci`, which have stash entries of their own on the stack. Tell the user — silently pocketing someone's work in progress is how it
 gets lost. **Restore it on every exit from here on**, not just the happy one: a conflict that
 cannot be resolved (Step 3) and a rejected lease (Step 5) both end the run, and both must pop the
 stash first, or the tree comes back deceptively clean with the user's work parked in an entry
@@ -203,7 +206,7 @@ is the point, but it needs finishing: fix the commit and `git rebase --continue`
 
 ## Step 5 — Publish
 
-Skip this entirely if `$ARGUMENTS` contains `--no-push`, or if Step 0.4 found the branch
+Skip this entirely if Step 0.1 saw `--no-push`, or if Step 0.4 found the branch
 **unpublished** — no `refs/remotes/origin/<branch>`. Do not test `@{upstream}` here either: it is
 set on branches that have no remote branch of their own, and pushing one of those with
 `push.default=upstream` aims at the base. A caller about to push a fix of its own should rebase
@@ -232,8 +235,9 @@ Check first that no rebase is still in progress — `git status` says so plainly
 `--exec` or an abandoned conflict leaves one. Popping a stash onto a half-finished rebase only
 compounds the mess.
 
-Then restore the Step 1.5 stash if there was one. If it conflicts, say so and leave the stash
-intact rather than forcing it.
+Then restore the Step 1.5 stash if there was one, by identity — `git stash list --format='%H %gd'`
+to find the recorded SHA, then pop that `stash@{n}`. `git stash pop <sha>` is not valid git. If it
+conflicts, say so and leave the stash intact rather than forcing it.
 
 Report:
 

@@ -1,6 +1,6 @@
 ---
 name: work-issue
-description: Take a GitHub or GitLab issue from URL or number all the way to a merged-ready pull request. Reads the issue and everything it links to, challenges whether it is worth building as written, classifies it as a bug, feature, or chore, plans it for approval, then implements it phase by phase behind /simplify and /code-review gates before opening a PR and driving CI to green. Use for "implement issue 123", "fix this bug report", or any linked issue.
+description: Take a GitHub or GitLab issue from URL or number all the way to a merge-ready pull request. Reads the issue and everything it links to, challenges whether it is worth building as written, classifies it as a bug, feature, or chore, plans it for approval, then implements it phase by phase behind /simplify and /code-review gates before opening a PR and driving CI to green. Use for "implement issue 123", "fix this bug report", or any linked issue.
 argument-hint: "<issue-number-or-url>"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch
 ---
@@ -161,8 +161,14 @@ bug you cannot reproduce, stop and report what you tried.
    git rev-parse stash@{0}          # remember; Phase 8 pops by identity, not by position
    ```
    Tell the user. All three matter: `/rebase` and `/fix-ci` create stashes of their own later, so a
-   bare `git stash pop` in Phase 8 takes whichever is on top — quite possibly theirs — and popping
-   on the feature branch would drop unrelated work into the branch under review.
+   bare `git stash pop` takes whichever is on top — quite possibly theirs — and popping on the
+   feature branch would drop unrelated work into the branch under review.
+
+   **Restore it on every exit from here on, not just the last one.** This workflow stops early in
+   several places — an unresolved challenge verdict, a rejected plan, a `/rebase` conflict in
+   Phase 6, a CI loop that stops converging in Phase 7 — and each of those must run the Phase 8
+   restore before returning, or the user is left on a branch they did not start on with their work
+   in a stash entry mentioned once, dozens of steps earlier.
 3. Resolve the default branch — `git fetch origin`, then
    `git symbolic-ref --short refs/remotes/origin/HEAD`, stripping the `origin/` prefix. Fall back
    to `main`, then `master`, only if that fails.
@@ -294,7 +300,7 @@ Once the last phase is closed, review the branch as a whole:
    coverage, and worth the extra noise once, on the finished shape of the change.
 3. **Address every finding.** Adjacent ones route through `lib/adjacent-problems.md`. Re-run the
    full suite afterwards, since both steps can edit code, and commit whatever they changed —
-   leaving it uncommitted strands it when Phase 7 rebases.
+   leaving it uncommitted strands it at Phase 6, which opens with a `/rebase` that stashes it.
 
 Nothing reaches the PR with findings outstanding; a finding deliberately declined is a decision
 recorded in the Phase 8 report, not an omission. Skip this phase entirely when the plan was a
@@ -319,10 +325,14 @@ them read like the change somebody will review.
 
 1. **Check the issue trailer is there.** Exactly one commit — the one that delivers what the issue
    asked for — closes it, and the phase gate put the trailer on when it committed that phase.
-   Verify it (`git log origin/<base>..HEAD`) rather than adding it now: the tree is clean, so
-   there is nothing to `git commit`, and the commit is rarely the tip any more. If it is missing
-   and the commit *is* the tip, `git commit --amend`. If it is not, say so and use
-   `/rewrite-branch` — do not reach for an interactive rebase this harness cannot drive.
+   Verify it with `git log origin/<base>..HEAD` rather than adding it now: the tree is clean, so
+   there is nothing to `git commit`, and the commit is rarely the tip any more.
+
+   If the trailer is missing and that commit *is* the tip, amend it by passing the whole message —
+   `git commit -s --amend -m "$(cat <<'EOF' … EOF)"`, with the text below. A bare
+   `git commit --amend` opens `$EDITOR` and hangs, and `--no-edit` keeps the very message you are
+   trying to replace. If the commit is not the tip, say so and use `/rewrite-branch`; do not reach
+   for an interactive rebase this harness cannot drive.
 
    The message it should end up with:
 
@@ -456,7 +466,9 @@ is not optional. If the pop conflicts, leave the stash intact and say where it i
 
 - NEVER fix a bug you have not reproduced.
 - NEVER write the fix before the failing test (bugs).
-- NEVER modify a file before the plan is approved.
+- NEVER modify a file *for the change itself* before the plan is approved. Reproducing a bug and
+  finding its root cause come first by design and may need a scratch test or a temporary probe —
+  revert those before planning, and say what you ran.
 - NEVER build past a non-sound challenge verdict without an explicit decision from the user.
 - NEVER guess at missing requirements — ask, or state the assumption prominently.
 - NEVER fold an adjacent fix into a commit belonging to the issue; it gets its own.
