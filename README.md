@@ -58,13 +58,14 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 | `/address-review` | Works through review comments one by one: investigates, applies the valid ones, and explains why the rest are wrong. Commits the result. |
 | `/review-branch` | Reviews a whole branch through a C++23 lens — idioms, const correctness, naming, coverage, performance, risk rating. |
 | `/cpp-review` | Correctness-focused review of a C++ change — a PR, a diff, or pasted code. Reads outward from the diff (ownership, threading, callers, the project's real language standard) before judging, compiles stubbed reductions to verify compile-level claims, and reports severity-tiered findings. Complements `/review-branch`, which sweeps a whole branch for idiom and conventions. |
-| `/fix-ci` | Pulls failing CI logs, diagnoses root causes, fixes them, amends, and pushes. |
+| `/fix-ci` | Pulls failing CI logs, diagnoses root causes, fixes them, amends, and pushes. Rebases onto the latest base first, so it never diagnoses a failure judged against a stale tree. |
+| `/rebase` | Rebases the branch onto the latest origin base, resolving conflicts with intent and proving the result still builds and passes its suite before force-pushing with a lease. |
 
 ### Issues
 
 | Skill | What it does |
 |---|---|
-| `/work-issue <n>` | Takes an issue to a committed branch. Reads everything it links to, classifies it bug/feature/chore, then reproduces-and-regression-tests or designs-and-tests accordingly. |
+| `/work-issue <n>` | Takes an issue all the way to a green PR. Reads everything it links to, challenges whether it is worth building as written, classifies it bug/feature/chore, plans it for approval, then implements phase by phase behind `/simplify` and `/code-review` gates before opening the PR and driving CI green. |
 
 ### C++
 
@@ -189,8 +190,17 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    `lib/pr-conventions.md` and cite its sections by heading. Platform detection, branch handling,
    the changelog label rule, and the title/body composition rules live there so that `/create-pr`,
    `/draft-pr`, and `/update-pr` cannot drift apart. Improvements belong in that file.
-6. Add it to the table above.
-7. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
+6. If the skill can turn up a real problem that is not the one it was asked about — a pre-existing
+   bug, a finding in untouched code, a CI job that was already red — read
+   `lib/adjacent-problems.md` and cite its sections rather than inventing another private version
+   of "note it and move on". `/work-issue`, `/sanitize`, `/fix-ci` and `/address-review` act on it;
+   `/cpp-review` and `/review-branch` use its *Classification* vocabulary so their findings arrive
+   ready to route.
+7. If the skill needs the branch on top of a base that may have moved, invoke `/rebase` rather than
+   open-coding `git rebase` — conflict handling, verification, and the `--force-with-lease`
+   semantics live there.
+8. Add it to the table above.
+9. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
    the entry in `.claude-plugin/marketplace.json`. The version is pinned, so users receive
    nothing until it changes.
 
