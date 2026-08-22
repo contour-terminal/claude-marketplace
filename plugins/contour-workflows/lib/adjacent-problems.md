@@ -1,8 +1,9 @@
 # Adjacent problems
 
 Shared policy for the skills that find real problems outside the work they were asked to do —
-`/work-issue`, `/sanitize`, `/fix-ci`, and `/address-review` act on it; `/cpp-review` and
-`/review-branch` use its *Classification* vocabulary so their findings arrive ready to triage.
+`/work-issue`, `/fix-ci`, and `/address-review` act on it; `/cpp-review`, `/review-branch`,
+`/sanitize` and `/rebase` use its *Classification* vocabulary so their findings arrive ready to
+triage — they diagnose and report but do not commit, so routing is the caller's job.
 Each of those skills reads this file and cites the sections it needs by heading; none of them
 restate the rules. Changes here apply to all of them, which is the point: without a shared answer,
 every skill invents its own version of "note it and move on" and they drift.
@@ -56,6 +57,11 @@ asking is one message, and the cost of a surprise refactor inside someone else's
 re-review.
 
 ## Routing an adjacent problem
+
+A skill that does not commit cannot route. If you have no commit step of your own — you are
+diagnosing or reviewing, not landing changes — stop after *Classification*: report the finding as
+adjacent, with the evidence, and leave the routing to whoever is committing. Improvising a commit
+procedure is exactly what this file exists to prevent.
 
 **Small → fix it now, in its own commit.** Separate from the commits belonging to the primary
 work, so it reviews on its own terms and reverts without taking the real change with it. Give it

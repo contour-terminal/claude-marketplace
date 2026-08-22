@@ -159,7 +159,8 @@ For each comment, arrive at one of these verdicts:
 - **NOT APPLICABLE**: The comment is about something already resolved, outdated, or a misunderstanding of the code.
 - **ADJACENT**: The reviewer is correct, but about code this branch did not change — the common
   "while you're here" comment. Do not silently absorb it into the review commit and do not brush it
-  off. Apply *Sizing* and *Routing* from `lib/adjacent-problems.md`: small and clearly correct — fix
+  off. Apply *Sizing an adjacent problem* and *Routing an adjacent problem* from
+  `lib/adjacent-problems.md`: small and clearly correct — fix
   it now in its own commit, so the reviewer can see it separately from the feedback changes; larger
   or carrying a design decision — ask, then file a ticket or suggest a parallel worktree, and reply
   to the reviewer saying which. Declining to widen a PR is a legitimate answer; declining *without
@@ -171,7 +172,9 @@ For each comment, arrive at one of these verdicts:
 
 For each comment with verdict ACCEPT or ACCEPT WITH MODIFICATION:
 
-1. Make the code change using the Edit tool.
+1. Make the code change using the Edit tool. This covers ACCEPT and ACCEPT WITH MODIFICATION, and
+   also any **ADJACENT** comment that Step 2.4 sized as small enough to fix now — those get made
+   here too, but they are committed separately in Phase 4.
 2. If the reviewer used a suggestion block, apply it exactly (for ACCEPT) or with your modifications (for ACCEPT WITH MODIFICATION).
 3. Maintain consistent code style (run through project formatting if applicable).
 4. If a change in one location requires corresponding changes elsewhere (e.g., updating call sites, header declarations), make all necessary related changes.
@@ -185,7 +188,7 @@ After applying all changes:
 3. If any test fails, investigate whether the failure is caused by your changes:
    - If yes, fix the issue while staying true to the reviewer's intent.
    - If no (pre-existing failure), it is adjacent, not yours — apply *Classification* and
-     *Routing* from `lib/adjacent-problems.md` rather than only noting it. But if the failure
+     *Routing an adjacent problem* from `lib/adjacent-problems.md` rather than only noting it. But if the failure
      makes it impossible to tell whether the review changes are correct, it is a **blocker**:
      say so and stop instead of reporting a green you cannot vouch for.
 
@@ -193,7 +196,12 @@ After applying all changes:
 
 ### Step 4.1 — Create the commit
 
-Stage all modified files and create a single commit with a descriptive message:
+**Commit any adjacent fix first, on its own.** A fix made for an ADJACENT comment answers something
+the branch was not about, so folding it into the review commit hides it from the reviewer who asked
+and makes it unrevertable on its own. Stage only its paths, commit it with a message naming what it
+fixes, and keep the issue/review framing out of it.
+
+Then stage the remaining modified files and create a single commit with a descriptive message:
 
 ```
 git commit -s -m "$(cat <<'EOF'

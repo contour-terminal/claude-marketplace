@@ -2,7 +2,7 @@
 name: work-issue
 description: Take a GitHub or GitLab issue from URL or number all the way to a merged-ready pull request. Reads the issue and everything it links to, challenges whether it is worth building as written, classifies it as a bug, feature, or chore, plans it for approval, then implements it phase by phase behind /simplify and /code-review gates before opening a PR and driving CI to green. Use for "implement issue 123", "fix this bug report", or any linked issue.
 argument-hint: "<issue-number-or-url>"
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent, Skill, WebFetch, WebSearch
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(glab:*), Bash(ctest:*), Bash(cmake:*), Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch
 ---
 
 # Work an Issue
@@ -21,8 +21,8 @@ issue *kind*: bugs demand a failing test before a fix; features demand a design 
 6. **Minimal, correct fixes.** Fix the root cause, not the symptom. "Minimal" bounds *scope*, not
    craft: `/simplify` over code this change touched, and an adjacent fix in its own commit, are
    both in bounds — neither is opportunistic refactoring.
-7. **Review every phase, not just the end.** A problem caught inside the phase that caused it is
-   cheap; the same problem found three phases later is archaeology.
+7. **Review every phase, not just the end.** A problem caught in the phase that caused it is
+   cheap; the same problem three phases later is archaeology.
 8. **Evidence-based.** Cite concrete file paths and line numbers for every claim.
 9. **No regressions.** Run the full suite before reporting done.
 10. **Done means green.** The work is finished when CI is green on a real PR, not when the code
@@ -63,6 +63,13 @@ Close every phase the same way, before starting the next one:
 4. **Address every finding** before the next phase begins. Findings about code this change did not
    touch are *adjacent* — route them through `lib/adjacent-problems.md` rather than absorbing them
    silently or ignoring them. A finding deliberately declined is recorded, not dropped.
+5. **Commit the phase**, with `-s` and a message describing what this phase did. Adjacent fixes go
+   in their own commits, per the policy.
+
+Step 5 is not bookkeeping — it is what makes the rest of the gate work. `/simplify` and
+`/code-review` operate on *changed* code, meaning everything not yet committed, so leaving phases
+uncommitted makes every gate re-read the whole accumulated tree: phase one reviewed once per phase,
+slower and noisier as the branch grows, and an adjacent fix with nowhere to land as its own commit.
 
 **When the plan is a single phase**, the phase gate and the final pass in Phase 3 cover the same
 code. Run the gate once, at the deeper level, and skip the duplicate — reviewing a two-line diff
@@ -82,10 +89,8 @@ twice is ceremony, not rigour.
 
 Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool. It governs what to do
 with a real problem that is not the one you came for; *The phase gate* above and Phases 2, 3 and 7
-all cite it.
-
-Do not read `lib/pr-conventions.md` — `/create-pr` and `/draft-pr` read it themselves in Phase 6,
-and its *Portability rules* bind every reader to never force-push, which Phase 7 must do.
+all cite it. You do not need `lib/pr-conventions.md` — `/create-pr` and `/draft-pr` read it
+themselves in Phase 6.
 
 ### Step 0.1 — Detect the platform
 
@@ -143,12 +148,10 @@ at the authoritative spec.
 ### Step 1.3 — Challenge the issue
 
 An issue is what somebody wanted at the moment they wrote it. Before building it, judge whether it
-is worth building *as written*, and **state the verdict**. Nothing has been created yet, so this is
-the cheapest moment to change course.
+is worth building *as written*, and **state the verdict**. Nothing exists yet, so this is the
+cheapest moment to change course. Work through:
 
-Work through:
-
-- **Is the problem real?** Where reproduction is cheap, reproduce it. Reports are sometimes
+- **Is the problem real?** Where reproduction is cheap, reproduce it — reports are sometimes
   misdiagnosed, already fixed, or describe intended behavior.
 - **Does it prescribe a solution where it should describe a problem?** Issues arrive as "add a
   `--force` flag" when the underlying need is served better another way. Name the need, then say
@@ -169,7 +172,7 @@ Land on one verdict:
 - **Sound** — say so and proceed.
 - **Sound problem, wrong prescription** — say what you would do instead and get a decision. This
   usually deserves a comment on the issue rather than a silent divergence: the author should learn
-  their suggestion was reshaped, and future readers should see why.
+  their suggestion was reshaped.
 - **Underspecified** — name what is missing and ask, rather than filling the gap with a guess that
   turns out at review time to have been the whole disagreement.
 - **Architecturally problematic** — name the principle it cuts against, with `file:line` and the
@@ -330,18 +333,19 @@ and a single phase, which then collapses with the final pass per *The phase gate
 
 Once the last phase is closed, review the branch as a whole:
 
-1. **`/simplify`** over the full branch diff. The per-phase runs each saw one phase's code, so
-   duplication that spans phases has been invisible until now — this is the only run that can see
-   it. It is usually quick, precisely because the per-phase runs cleared everything local.
-2. **`/code-review high`** over the full branch diff. Deeper than the per-phase `medium`: broader
+1. **`/simplify`** over `origin/<base>..HEAD` — name the range, since the phases are committed by
+   now and it would otherwise default to the working tree. Each per-phase run saw only its own
+   phase, so duplication spanning phases has been invisible until now; this is the only run that
+   can see it, and it is quick precisely because the per-phase runs cleared everything local.
+2. **`/code-review high origin/<base>..HEAD`**. Deeper than the per-phase `medium`: broader
    coverage, and worth the extra noise once, on the finished shape of the change.
 3. **Address every finding.** Adjacent ones route through `lib/adjacent-problems.md`. Re-run the
-   full suite afterwards, since both steps can edit code.
+   full suite afterwards, since both steps can edit code, and commit whatever they changed —
+   leaving it uncommitted strands it when Phase 7 rebases.
 
-Nothing gets committed with findings outstanding. A finding deliberately declined is a decision,
-recorded in the Phase 8 report — not an omission.
-
-Skip this when the plan was a single phase and its gate already ran at this depth.
+Nothing reaches the PR with findings outstanding; a finding deliberately declined is a decision
+recorded in the Phase 8 report, not an omission. Skip this phase entirely when the plan was a
+single phase and its gate already ran at this depth.
 
 ## Phase 4 — Release note
 
@@ -352,41 +356,44 @@ If the repository tracks a changelog (`metainfo.xml`, `*.appdata.xml`, `CHANGELO
 Skip for internal refactors, test-only changes, and bugs introduced *after* the most recent
 release (there is nothing for users to be told about).
 
-## Phase 5 — Commit
+## Phase 5 — Finalize the history
 
-Commit the work, referencing the issue so it is linked and auto-closed:
+The phases committed as they closed, so the branch already has commits. What is left is making
+them read like the change somebody will review.
 
-```
-git commit -s -m "$(cat <<'EOF'
-<module>: <summary line>
+1. **Carry the issue trailer.** Exactly one commit — the one that delivers what the issue asked
+   for — closes it:
 
-<what changed and why — the root cause for a bug, the capability for a feature>
+   ```
+   git commit -s -m "$(cat <<'EOF'
+   <module>: <summary line>
 
-Fixes #<issue-number>
-EOF
-)"
-```
+   <what changed and why — the root cause for a bug, the capability for a feature>
 
-Use `-s` so the `Signed-off-by:` trailer comes from the committer's own git config. Use the
-module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`. Use
-`Fixes #N` for bugs, `Closes #N` for features and chores.
+   Fixes #<issue-number>
+   EOF
+   )"
+   ```
 
-If the work splits into distinct semantic units, make one commit per unit — `/commit`
-encodes that grouping logic. Adjacent fixes keep their own commits and do not carry the issue
-trailer; they were never what the issue asked for.
+   Use `-s` so the `Signed-off-by:` trailer comes from the committer's own git config. Use the
+   module area as prefix (`vtbackend:`, `ci:`, `build:`) rather than `feat:`/`fix:`. Use
+   `Fixes #N` for bugs, `Closes #N` for features and chores. If the trailer belongs on a commit
+   that already exists, `/absorb` puts it there without a manual rebase.
+
+2. **Check the shape.** One commit per semantic unit — `/commit` encodes that grouping logic,
+   `/rewrite-branch` regroups a branch whose phases were not the right seams. Phase boundaries are
+   a good default, not an obligation.
+
+3. **Leave adjacent fixes alone.** They keep their own commits and no issue trailer; they were
+   never what the issue asked for.
 
 ## Phase 6 — Open the PR/MR
 
 First run **`/rebase`**, so the very first CI run is judged against current `origin/HEAD` rather
-than whatever the base was when the branch started.
-
-Then open it:
-
-- **`/create-pr`** normally.
-- **`/draft-pr`** when a Follow-up leaves the branch short of ready-to-merge.
-
-Both read `lib/pr-conventions.md` for platform detection, base resolution, the push, the changelog
-label rule, and title/body composition — do not restate any of that here.
+than whatever the base was when the branch started. Then open it — **`/create-pr`** normally, or
+**`/draft-pr`** when a Follow-up leaves the branch short of ready-to-merge. Both read
+`lib/pr-conventions.md` for platform detection, base resolution, the push, the changelog label rule
+and title/body composition, so do not restate any of that here.
 
 Record the PR/MR number and URL; Phase 7 needs both.
 
@@ -396,12 +403,11 @@ Loop until green or until one of the stop conditions fires.
 
 ### Step 7.1 — Sync onto the latest base
 
-Run **`/rebase`**, which detects whether the base moved, resolves any conflicts, proves the branch
-still builds and passes its suite, and force-pushes with a lease. It stops on its own when the base
-has not moved, so this is cheap to run every pass — and it needs to run every pass, because other
-branches keep landing while yours is in review.
-
-If it stops on an unresolvable conflict or a rejected lease, stop the loop too and report.
+Run **`/rebase`**: it detects whether the base moved, resolves conflicts, proves the branch still
+builds and passes its suite, and force-pushes with a lease. It stops on its own when the base has
+not moved, so it is cheap to run every pass — and it needs to run every pass, because other
+branches keep landing while yours is in review. If it stops on an unresolvable conflict or a
+rejected lease, stop the loop too and report.
 
 ### Step 7.2 — Wait for the run
 
@@ -410,8 +416,8 @@ gh pr checks <number> --watch        # GitHub
 glab ci status                       # GitLab
 ```
 
-CI takes minutes to hours, which is longer than a single command is allowed to block — poll at
-intervals or run the watch in the background rather than hanging one call until it is killed.
+CI takes minutes to hours, longer than a single command may block — poll at intervals or watch in
+the background rather than hanging one call until it is killed.
 
 ### Step 7.3 — Green? Done. Red? Fix it
 
@@ -426,9 +432,14 @@ Phase 3 reviewed the branch as it stood *before* CI touched it. If `/fix-ci` cha
 opposed to formatting or CI configuration — run `/simplify` and then `/code-review medium` over
 that delta, so nothing reaches the merge unreviewed.
 
+Both *apply* edits, so commit and push whatever they change before looping. An uncommitted re-gate
+fix is worse than none: Step 7.1 runs `/rebase`, which stashes a dirty tree, and CI keeps judging a
+commit that never contained the fix. `/absorb` folds it into the commit it belongs to; otherwise
+amend and force-push with a lease.
+
 ### Step 7.5 — Back to Step 7.1
 
-The base may have moved again while CI was running. That is the whole reason this is a loop.
+The base may have moved again while CI ran — that is why this is a loop.
 
 **Stop and report** instead of looping again when:
 
@@ -462,6 +473,11 @@ longer checks anything is worse than an honest red, because it survives review.
 If the PR was opened as a draft, say how to promote it — `gh pr ready <number>` or
 `glab mr update <iid> --ready`. Promoting is the author's call, so do not do it.
 
+**Restore the Step 1.5 stash** if you created one, and say so. Easy to forget over a workflow this
+long, and `/rebase` and `/fix-ci` push and pop stashes of their own on the way — `git stash pop` is
+last-in-first-out, so a user recovering by hand later gets somebody else's entry. If the pop
+conflicts, leave the stash intact and say where it is.
+
 ## Rules
 
 - NEVER fix a bug you have not reproduced.
@@ -475,6 +491,7 @@ If the PR was opened as a draft, say how to promote it — `gh pr ready <number>
 - NEVER make CI green by disabling, skipping or deleting a test.
 - NEVER work a closed issue without confirming with the user.
 - ALWAYS branch from a freshly fetched default branch.
-- ALWAYS close each phase with `/simplify` then `/code-review`, naming the level.
+- ALWAYS close each phase with `/simplify`, then `/code-review` naming the level, then a commit.
+- ALWAYS restore a stash you created.
 - ALWAYS run the full test suite before reporting done.
 - ALWAYS rebase onto the latest base before judging a CI result.

@@ -2,7 +2,7 @@
 name: rebase
 description: Rebase the current branch onto the latest origin base, resolving any merge conflicts and proving the result still builds and passes its tests. Use whenever a branch has fallen behind — "rebase my branch", "update against master", "main moved", a stale PR, or a CI result that was judged against an old base. Refuses to rewrite published mainline history.
 argument-hint: "[base-branch] [--no-push]"
-allowed-tools: Bash(git:*), Bash(cmake:*), Bash(ctest:*), Read, Grep, Glob, Edit
+allowed-tools: Bash, Read, Grep, Glob, Edit
 ---
 
 # Rebase
@@ -32,23 +32,40 @@ still work afterwards.
    repository's actual default branch from the context above — strip the `origin/` prefix, and
    fall back to `main`, then `master`, only if that fails. Never assume the name.
 
-2. **Refuse on the default branch.** If the current branch *is* the base, stop. Mainline history is
+2. **Refuse on the default branch.** Compare the current branch against the repository's *default*
+   branch (`git symbolic-ref --short refs/remotes/origin/HEAD`), not against the base resolved in
+   step 1 — otherwise `/rebase develop` while sitting on `master` sails straight past this guard
+   and rewrites mainline. Also stop if the current branch simply *is* the base. Mainline history is
    shared and rewriting it breaks every branch cut from it; `/absorb` refuses for the same reason.
 
 3. **Deal with a dirty tree.** A rebase will not start with uncommitted changes. Stash them
-   (`git stash push --include-untracked -m "rebase: auto-stash"`), remember that you did, and
-   restore them at the end. Tell the user — silently pocketing someone's work in progress is how
-   it gets lost.
+   (`git stash push --include-untracked -m "rebase: auto-stash"`), remember that you did, and tell
+   the user — silently pocketing someone's work in progress is how it gets lost.
+
+   **Restore it on every exit, not just the happy one.** This skill stops early in several places:
+   the base has not moved (Step 1), a conflict could not be resolved (Step 3), the lease was
+   rejected (Step 5). Each of those must pop the stash before returning, or the user's tree comes
+   back deceptively clean with their work parked in a stash entry they were never told to look for.
+   Cheapest way to get this right is to check whether the base moved *before* stashing — see
+   Step 1.
 
 4. **Note whether the branch is published.** `git rev-parse --abbrev-ref '@{upstream}'`. A branch
    with an upstream will need a force-push; a purely local one will not.
 
 ## Step 1 — Has the base actually moved?
 
+Run this check *before* Step 0.3's stash where you can — the overwhelmingly common answer is "no",
+and not stashing at all is simpler than remembering to restore.
+
 ```
-git fetch origin
+git fetch origin <base>
 git log --oneline HEAD..origin/<base>
 ```
+
+Fetch the **base ref only**, never a bare `git fetch origin`. A bare fetch also updates
+`refs/remotes/origin/<your-branch>`, which is precisely the ref a plain `--force-with-lease` uses
+as its expected value in Step 5 — refresh it and the lease silently starts agreeing with whatever
+a colleague just pushed, which is the one thing it exists to prevent.
 
 Empty output means there is nothing to do. Say so and stop rather than performing a no-op rebase —
 rewriting commit hashes for no reason invalidates everyone's local copies and any review already
@@ -97,21 +114,34 @@ part of a rebase nobody can see afterwards — the diff shows the result, never 
 A rebase that compiles is not a rebase that works. Semantic conflicts — your caller, their renamed
 callee; your test, their changed default — merge without complaint.
 
-1. **Build.** Use the project's preset (`cmake --build --preset <preset>`); a clean build, since a
-   stale cache can hide an incompatibility the rebase just introduced.
+1. **Build.** Use whatever the project actually builds with — a CMake preset, `cargo build`,
+   `npm run build`, `go build`, `make`. Read `CLAUDE.md`/`AGENT.md`, the README, or the CI workflow
+   to find out rather than assuming a C++ toolchain; this skill is invoked by `/work-issue` and
+   `/fix-ci`, which run on any repository. Build clean — a stale cache hides exactly the
+   incompatibility a rebase introduces. If the repository has nothing to build (a docs or config
+   repo), say so and go to step 2.
 2. **Run the full suite**, not just the tests near the conflict. The point is to catch what
    upstream changed underneath code you did not touch.
 3. **If something fails**, decide honestly whether it is your branch, the new base, or the two
    together. Run the same test on `origin/<base>` before concluding anything — a failure that
-   reproduces there is pre-existing and is not yours to absorb into this rebase. Apply
-   `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md`.
+   reproduces there is pre-existing and is not yours to absorb into this rebase.
+
+   Report it using the *Classification* vocabulary from
+   `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` and stop there. This skill has no commit step,
+   so it does not fix, file or branch off for anything — that is the caller's decision, and
+   `/work-issue` and `/fix-ci` both know what to do with a finding labelled adjacent.
 
 Where each commit must build on its own — a repository that expects bisectability — verify them
 all rather than only the tip:
 
 ```
-git rebase origin/<base> --exec 'cmake --build --preset <preset>'
+git rebase origin/<base> --exec '<the project build command>'
 ```
+
+This stops the rebase at the first commit that fails to build, leaving you mid-rebase on a detached
+HEAD. That is the point — but it needs finishing: fix the commit and `git rebase --continue`, or
+`git rebase --abort` and report. Do not push or restore the stash while a rebase is in progress;
+`git status` will tell you it still is.
 
 ## Step 5 — Publish
 
@@ -121,12 +151,16 @@ restarts CI, and two pushes mean two full runs for one logical change.
 
 Otherwise:
 
+Record the branch's remote tip *before* any fetching (`git rev-parse refs/remotes/origin/<branch>`),
+and name it in the lease:
+
 ```
-git push --force-with-lease
+git push --force-with-lease=<branch>:<recorded-sha>
 ```
 
-A rebase rewrites history, so the push must be forced. Use `--force-with-lease`, never `--force`:
-the lease is what fails loudly when somebody else has pushed to the branch meanwhile.
+A rebase rewrites history, so the push must be forced. The explicit expectation is what makes the
+lease mean anything: a bare `--force-with-lease` trusts the remote-tracking ref, and any fetch
+between then and now has already quietly updated it to include a colleague's push. Never `--force`.
 
 **If the lease is rejected, stop.** Someone else's commits are on that branch. Escalating to
 `--force` discards precisely what the lease existed to protect. Report it and let the user decide.
@@ -151,7 +185,9 @@ Report:
 - NEVER escalate `--force-with-lease` to `--force`.
 - NEVER resolve a conflict you cannot explain — abort and ask.
 - NEVER use `-X ours` or `-X theirs` to clear a conflict.
-- NEVER report success without building and running the suite; a clean rebase proves nothing.
+- NEVER report success without building and running the suite; a clean rebase proves nothing. If
+  the project has no build or test command to run, say that explicitly in the report instead of
+  implying it was verified.
 - NEVER rebase when the base has not moved.
 - ALWAYS restore a stash you created.
 - ALWAYS report each conflict resolution — it is invisible in the resulting diff.

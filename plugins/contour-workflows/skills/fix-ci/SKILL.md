@@ -20,7 +20,7 @@ Diagnose and fix CI failures on a pull/merge request. Amend the fix into the exi
 
 Read `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` with the **Read** tool. CI is where problems
 that are not yours surface most bluntly — a job that was already red before this branch existed
-still blocks the merge. Phase 2 and Phase 4 cite its sections by heading.
+still blocks the merge. Step 2.4, Step 3.2 and the Rules cite its sections by heading.
 
 ### Step 0.1 — Determine the hosting platform
 
@@ -82,8 +82,21 @@ nothing if it runs against a stale tree.
 `--no-push` matters here: this skill is about to amend a fix and force-push anyway, so rebasing
 locally and pushing once in Phase 4 means one CI run instead of two.
 
-`/rebase` stops by itself when the base has not moved. If it reports an unresolvable conflict,
-stop — that conflict, not the CI failure, is now the thing to deal with.
+`/rebase` stops by itself when the base has not moved, which is the common case — nothing below
+applies then. When it *does* rebase, two consequences follow that the rest of this skill would
+otherwise get wrong:
+
+- **The local branch is now ahead of the remote with rewritten hashes.** If Phase 4 ends up not
+  pushing — every failure turned out to be infrastructure — do not simply stop and leave the user
+  diverged from `origin`, with their next ordinary `git push` rejected for reasons this skill
+  caused. Either push the rebase on its own (`git push --force-with-lease`, saying that CI will
+  re-run), or `git reset --hard @{u}` to put the branch back exactly as it was. Say which you did.
+- **The Step 0.2 stash predates the rewrite**, so Step 5.2 pops it onto a different tree than it
+  was taken from and may now conflict where it would not have. Warn on the conflict rather than
+  forcing it, and leave the stash intact.
+
+If `/rebase` reports an unresolvable conflict, stop — that conflict, not the CI failure, is now the
+thing to deal with.
 
 ## Phase 1 — Identify CI Failures
 
@@ -217,8 +230,9 @@ Classify each failure:
 **Infrastructure** failures are not code problems — note them in the report and leave them alone.
 They never enter triage; there is nothing to fix, ticket, or branch off for.
 
-**Pre-existing** failures do enter triage. Apply *Classification*, *Sizing* and *Routing* from
-`lib/adjacent-problems.md`: small and clearly correct — fix it now in its own commit, separate from
+**Pre-existing** failures do enter triage. Apply *Classification*, *Sizing an adjacent problem*
+and *Routing an adjacent problem* from `lib/adjacent-problems.md`: small and clearly correct — fix
+it now in its own commit, separate from
 the commits being amended; larger or carrying a design decision — ask, then file a ticket carrying
 the job log and the diagnosis, or suggest a parallel worktree. This matters because a pre-existing
 failure still blocks the merge: reporting it and stopping leaves the PR stuck with no route out.
@@ -258,7 +272,13 @@ If the project uses clang-format or similar tools, run them on modified files to
 
 ### Step 4.1 — Amend the commit
 
-Stage all fixed files and amend them into the appropriate commit:
+**Separate any adjacent fix first.** If Step 2.4 routed a pre-existing problem into a fix, it gets
+its own commit and must not be swept into the amend — `git add <only the CI-fix paths>` rather than
+`git add -A`, commit the adjacent work separately with its own message, and only then amend. A
+`git add -A` here folds an unrelated fix into a commit that claims to be about the CI failure,
+which is exactly what *Guards* in `lib/adjacent-problems.md` forbids.
+
+Then stage the CI fix and amend it into the appropriate commit:
 
 1. If the branch has a **single commit** ahead of the base:
    ```
@@ -352,10 +372,14 @@ For each failure:
   a failure you may not have.
 - NEVER introduce behavioral changes beyond what is needed to fix the CI failure.
 - NEVER skip the local build/test verification step.
-- NEVER leave the working tree in a dirty or unexpected state — always restore stashes and return to the original branch.
+- NEVER leave the working tree in a dirty or unexpected state — always restore stashes and return
+  to the original branch, and never leave the branch silently diverged from its remote after a rebase.
+- NEVER `git add -A` when an adjacent fix is in the tree; it belongs in its own commit.
 - NEVER silently discard local changes — always stash and restore.
 - If a CI failure is due to a flaky test or infrastructure issue (not a code defect), do NOT modify any code. Report it as an infrastructure issue in the summary.
-- If ALL failures are infrastructure-related, skip the amend/push steps and only produce the summary report.
+- If ALL failures are infrastructure-related, skip the amend step and only produce the summary
+  report — but if Step 0.4 rebased, resolve the resulting divergence as that step describes rather
+  than leaving the branch ahead of its remote.
 - If ALL failures are pre-existing, do not stop at the summary — route them through
   `lib/adjacent-problems.md` so the user gets options (fix now, ticket, parallel worktree) rather
   than a blocked PR and no next step.
