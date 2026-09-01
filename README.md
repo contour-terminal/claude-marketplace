@@ -67,6 +67,19 @@ Invoke as `/<skill>`, or `/contour-workflows:<skill>` when a name is ambiguous.
 |---|---|
 | `/work-issue <n>` | Takes an issue all the way to a green PR. Reads everything it links to, challenges whether it is worth building as written, classifies it bug/feature/chore, plans it for approval, then implements phase by phase behind `/simplify` and `/code-review` gates before opening the PR and driving CI green. |
 
+### Sprints & teams
+
+One manager session and two or three developer sessions, coordinated through a project board.
+Lanes are component ownership, so three branches cannot collide; the branch is the only record of
+who holds a ticket, because a session is the least durable thing in the run.
+
+| Skill | What it does |
+|---|---|
+| `/sprint-plan` | Turns a goal, a milestone, a tracking issue or a pile of issues into a board with lanes, phases and an explicit order. Derives the lane split from `CODEOWNERS`, area labels or the source tree and confirms it before creating anything. Falls back to a milestone when there is no board or no `project` scope, and says which one it built. |
+| `/sprint-run` | The manager loop: reconcile the board against the branches, check quiet lanes for unpushed work, merge in an order that will not conflict, dispatch the next ticket to each idle lane, take bug reports. Assigns and merges; writes no feature code. |
+| `/sprint-status` | Where the sprint stands — progress by phase, who has what, what is blocked and on what, where the board disagrees with the branches, and whether a quiet lane is sitting on uncommitted work. Read-only unless asked for a snapshot. |
+| `/sprint-dev <n>` | What a developer runs: `/work-issue` plus the constraints that only exist in a parallel run — stay in lane, push early, scope every gate explicitly, report to the manager and never to the user. |
+
 ### C++
 
 | Skill | What it does |
@@ -212,8 +225,13 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
 9. If the skill publishes a branch, rewrites history, stashes, or has to separate two changes in
    one tree, read `lib/git-safety.md` and cite its sections. Every rule in it exists because four
    skills each derived it independently and at least one got it wrong.
-10. Add it to the table above.
-11. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
+10. If the skill coordinates a sprint across several sessions, or is one of the sessions being
+   coordinated, read `lib/team-protocol.md` for the role and lane contract and `lib/sprint-board.md`
+   for the board schema. Two rules there are easy to re-derive wrongly and expensive to get wrong:
+   a ticket records its *component*, never the session holding it, and a ticket is Done only when
+   the PR closing it merged with CI green.
+11. Add it to the table above.
+12. Bump `version` in **both** `plugins/contour-workflows/.claude-plugin/plugin.json` and
    the entry in `.claude-plugin/marketplace.json`. The version is pinned, so users receive
    nothing until it changes.
 

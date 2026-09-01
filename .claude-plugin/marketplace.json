@@ -13,8 +13,8 @@
     {
       "name": "contour-workflows",
       "source": "./plugins/contour-workflows",
-      "version": "1.10.0",
-      "description": "Git, review, CI, release and analysis workflow skills and safety hooks for C++ projects",
+      "version": "1.11.0",
+      "description": "Git, review, CI, release, analysis and multi-session sprint coordination skills, plus safety hooks, for C++ projects",
       "category": "development",
       "keywords": [
         "git",
@@ -24,7 +24,10 @@
         "release",
         "github",
         "gitlab",
-        "safety"
+        "safety",
+        "sprint",
+        "project-board",
+        "multi-agent"
       ],
       "homepage": "https://github.com/contour-terminal/claude-marketplace",
       "license": "Apache-2.0"

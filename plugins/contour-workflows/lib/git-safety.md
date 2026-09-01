@@ -1,10 +1,11 @@
 # Git safety
 
 Shared rules for the operations that can destroy someone's work — publishing a branch, rewriting
-history, stashing, and splitting a working tree. `/rebase`, `/absorb`, `/fix-ci`, `/work-issue` and
-`/address-review` read this file and cite its sections by heading.
+history, stashing, splitting a working tree, and sequencing two branches onto one base.
+`/rebase`, `/absorb`, `/fix-ci`, `/work-issue`, `/address-review` and `/sprint-run` read this file
+and cite its sections by heading.
 
-It exists because these four facts were each re-derived independently in four different skills, and
+It exists because these facts were each re-derived independently in four different skills, and
 every re-derivation was a chance to get one subtly wrong — which is exactly what happened. Fix them
 here, once.
 
@@ -118,3 +119,92 @@ an amend, a possible rebase, and every early exit.
 
 Whatever is committed last still has to be built and tested. A fix committed after the verification
 step and then pushed has never been compiled.
+
+## Sequencing two PRs that touch the same file
+
+**Before merging two PRs that touch the same file, simulate the second onto a synthetic
+`base + first` — not onto the base.** Two branches that each *add* something at the same anchor
+are pairwise clean and serially conflicting, always, and every check anybody runs by reflex answers
+the pairwise question.
+
+This is the manager's check, so `/sprint-run` reads it. It matters because of *where* it goes
+wrong: `mergeStateStatus` answers the pairwise question, `gh pr checks` answers the pairwise
+question, and a green PR page answers the pairwise question. The failure surfaces only when the
+first PR merges, at which point the second is blocked and has to be rebased and resolved by hand —
+after its CI has already passed.
+
+Build the sequence instead:
+
+```
+tree="$(git merge-tree --write-tree "$base" "$first")"
+sim="$(git commit-tree "$tree" -p "$base" -p "$first" -m 'simulated merge')"
+git merge-tree --write-tree "$sim" "$second"; rc=$?
+```
+
+### Judge it by the exit status and the output together
+
+`git merge-tree --write-tree` writes a tree **on conflict as well**, so its success and failure
+output are the same shape — a hash on the first line. Testing whether the output is empty therefore
+reports **clean for every conflict**, confidently and by default. An instrument with no way to
+express the failing state reports the passing one.
+
+The exit status alone is better and still not enough:
+
+```
+clean                          rc=0    tree on stdout
+conflicted                     rc=1    tree on stdout, then stage entries
+a ref that cannot be resolved  rc=1    NOTHING on stdout
+a usage error                  rc=129  usage text
+```
+
+Git returns 1 for a conflict **and** 1 for a branch name it cannot resolve. So testing `rc != 0`
+calls a stale or mistyped branch a conflict, and a sequencing loop over a deleted ref reports every
+pair as conflicting and sends somebody rebasing against nothing.
+
+Three states, and the discriminator is `rc` **plus** whether stdout carries a tree:
+
+```
+out="$(git merge-tree --write-tree "$a" "$b" 2>/dev/null)"; rc=$?
+first="$(echo "$out" | sed 1q)"
+
+if [ "$rc" = 0 ]; then
+    verdict=clean
+elif [ "$rc" = 1 ] && echo "$first" | grep -Eq '^[0-9a-f]{40,64}$'; then
+    verdict=conflicted          # a tree was written, so the merge actually ran
+else
+    verdict="errored rc=$rc"    # no tree: a ref it could not resolve, or worse
+fi
+```
+
+The shape worth remembering rather than the snippet: **a conflict writes a tree and an error does
+not**, so the presence of the tree separates the two states that share an exit code.
+
+### A third branch is only as tested as the tree beneath it
+
+`merge-tree` carries a conflicted tree forward rather than stopping, so a third PR simulated on top
+of an unresolved second is being merged against a tree containing **conflict markers**. Its `clean`
+is provisional and stands for nothing until the conflict below it is actually resolved and the
+simulation re-run. Label such a result unverified rather than reporting it.
+
+### What to do about a conflict you find
+
+**Take the rebase.** Do not relocate the colliding text so the two branches stop overlapping — that
+organises a file by merge history instead of by subject, and the next reader inherits both the odd
+placement and no explanation for it.
+
+Do not cancel a running job to pre-empt it either. The conflict is *scheduled*: it cannot bite
+before the first PR merges, and when it does it announces itself as a blocked queue entry rather
+than as a surprise. A conflict with a known arrival time and a mechanical resolution loses to
+almost anything you would have to cancel to avoid it.
+
+### Verify the tip you pushed
+
+Measure `<base>...origin/<branch>` — the pushed ref, **three dots** — as the last thing before
+reporting. Anything measured earlier describes a tree that is no longer what CI, the queue, or a
+reviewer will see; a resolution checked before a subsequent one-line fix produces a write-up whose
+prose and whose diffstat disagree, and the reader is right to stop believing the rest of it.
+
+Three dots rather than two for the same reason everywhere else: two-dot compares the base's *tip*
+to your HEAD, so the moment the base moves its new commits render as **your deletions**. That
+false-alarms on every upstream merge, and a check that cries wolf routinely is one nobody believes
+on the day it is right.

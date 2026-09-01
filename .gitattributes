@@ -1,0 +1,7 @@
+# LF everywhere, enforced here rather than by each contributor's core.autocrlf.
+#
+# A CRLF shell script does not misbehave — it fails to start at all. The shebang line
+# ends up naming an interpreter with a carriage return on the end of it, and no such
+# interpreter exists. Every *.sh here is invoked by the plugin at runtime, so this is a
+# correctness setting, not a tidiness one.
+* text=auto eol=lf
