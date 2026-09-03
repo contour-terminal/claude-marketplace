@@ -1,6 +1,6 @@
 {
   "name": "contour-workflows",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Git, review, CI, release, analysis and multi-session sprint coordination skills, plus safety hooks, for C++ projects",
   "author": {
     "name": "Contour Terminal",
@@ -20,6 +20,7 @@
     "safety",
     "sprint",
     "project-board",
+    "metrics",
     "multi-agent"
   ]
 }
