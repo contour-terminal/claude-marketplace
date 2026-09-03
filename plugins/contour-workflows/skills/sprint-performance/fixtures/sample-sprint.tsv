@@ -1,0 +1,99 @@
+M	mode	board
+M	board_url	https://github.com/orgs/example/projects/7
+M	board_title	Fixture sprint
+M	day0	2026-08-10
+M	day0_rung	R1
+M	day0_source	board createdAt
+M	day0_alt	R2 2026-08-10
+M	commits_source	batch
+M	gathered_at	2026-08-28T12:00:00Z
+M	unknown	gh_field closedByPullRequestsReferences not available on this gh
+T	101	L vtbackend	P1 dispatch	Done	1		https://github.com/example/repo/issues/101	A resize during reflow loses the last column
+T	102	N vtparser	P1 dispatch	Done	2		https://github.com/example/repo/issues/102	The parser accepts a CSI sequence it must reject
+T	103	D contour	P2 correctness	Done	9		https://github.com/example/repo/issues/103	Font fallback picks a bitmap face for emoji
+T	104	L vtbackend	P1 dispatch	Todo	3		https://github.com/example/repo/issues/104	Scrollback trimming is quadratic in line count
+T	105	N vtparser	P1 dispatch	In Progress	4		https://github.com/example/repo/issues/105	A wide glyph at the margin wraps to the wrong cell
+T	106	D contour	P1 dispatch	Done	5		https://github.com/example/repo/issues/106	Selection survives a screen clear it should not
+T	107	L vtbackend	P2 correctness	Done	6		https://github.com/example/repo/issues/107	Bracketed paste leaks the terminator into the buffer
+T	108	N vtparser	P2 correctness	Done	7		https://github.com/example/repo/issues/108	SGR 38:2 truecolour is parsed as 256-colour
+T	109	D contour	P2 correctness	Done	8		https://github.com/example/repo/issues/109	A detached session leaves its pty fd open
+T	110	L vtbackend	P2 correctness	Done	10		https://github.com/example/repo/issues/110	Mouse reporting stops after an alt-screen switch
+T	111		Backlog	Todo			https://github.com/example/repo/issues/111	Ligature shaping is recomputed per frame
+T	112	N vtparser	P2 correctness	In Progress	11		https://github.com/example/repo/issues/112	The grid reallocates on every scroll
+T	113	D contour	P2 correctness	Blocked	12	#101	https://github.com/example/repo/issues/113	Reflow cannot be tested without a stable resize path
+T	114	L vtbackend	P2 correctness	Done	13		https://github.com/example/repo/issues/114	Config reload drops unreloadable fields silently
+E	101	issue_created	2026-08-10T09:00:00Z	
+E	101	item_added	2026-08-10T09:00:00Z	
+E	101	first_commit	2026-08-11T09:00:00Z
+E	101	pr_created	2026-08-12T09:00:00Z
+E	101	pr_merged	2026-08-13T09:00:00Z
+E	101	issue_closed	2026-08-13T09:00:00Z	COMPLETED
+E	102	issue_created	2026-08-10T09:00:00Z
+E	102	item_added	2026-08-10T09:00:00Z
+E	102	first_commit	2026-07-30T09:00:00Z
+E	102	pr_created	2026-08-14T09:00:00Z
+E	102	pr_merged	2026-08-15T09:00:00Z
+E	102	issue_closed	2026-08-15T09:00:00Z	COMPLETED
+E	103	issue_created	2026-08-19T09:00:00Z
+E	103	item_added	2026-08-19T09:00:00Z
+E	103	first_commit	2026-08-20T09:00:00Z
+E	103	pr_created	2026-08-21T09:00:00Z
+E	103	pr_merged	2026-08-22T09:00:00Z
+E	103	issue_closed	2026-08-22T09:00:00Z	COMPLETED
+E	104	issue_created	2026-08-10T09:00:00Z
+E	104	item_added	2026-08-10T09:00:00Z
+E	104	issue_closed	2026-08-16T09:00:00Z	NOT_PLANNED
+E	105	issue_created	2026-08-10T09:00:00Z
+E	105	item_added	2026-08-10T09:00:00Z
+E	105	first_commit	2026-08-12T09:00:00Z
+E	105	issue_closed	2026-08-14T09:00:00Z	COMPLETED
+E	105	reopened	2026-08-15T09:00:00Z
+E	106	issue_created	2026-08-12T09:00:00Z
+E	106	item_added	2026-08-12T09:00:00Z
+E	106	first_commit	2026-08-16T09:00:00Z
+E	106	pr_created	2026-08-17T09:00:00Z
+E	106	pr_merged	2026-08-17T15:00:00Z
+E	106	issue_closed	2026-08-17T15:00:00Z	COMPLETED
+E	106	revert	2026-08-17T15:00:00Z	message-detected
+E	107	issue_created	2026-08-10T09:00:00Z
+E	107	item_added	2026-08-10T09:00:00Z
+E	107	issue_closed	2026-08-18T09:00:00Z	COMPLETED
+E	108	issue_created	2026-08-11T09:00:00Z
+E	108	item_added	2026-08-11T09:00:00Z
+E	108	first_commit	2026-08-13T09:00:00Z
+E	108	pr_created	2026-08-15T09:00:00Z
+E	108	pr_merged	2026-08-18T09:00:00Z
+E	108	issue_closed	2026-08-18T09:00:00Z	COMPLETED
+E	109	issue_created	2026-08-11T09:00:00Z
+E	109	item_added	2026-08-11T09:00:00Z
+E	109	first_commit	2026-08-14T09:00:00Z
+E	109	pr_created	2026-08-16T09:00:00Z
+E	109	pr_merged	2026-08-19T09:00:00Z
+E	109	issue_closed	2026-08-19T09:00:00Z	COMPLETED
+E	110	issue_created	2026-08-12T09:00:00Z
+E	110	item_added	2026-08-12T09:00:00Z
+E	110	first_commit	2026-08-15T09:00:00Z
+E	110	pr_created	2026-08-18T09:00:00Z
+E	110	pr_merged	2026-08-21T09:00:00Z
+E	110	issue_closed	2026-08-21T09:00:00Z	COMPLETED
+E	111	issue_created	2026-08-20T09:00:00Z
+E	111	item_added	2026-08-20T09:00:00Z
+E	112	issue_created	2026-08-10T09:00:00Z
+E	112	item_added	2026-08-10T09:00:00Z
+E	112	first_commit	2026-08-11T09:00:00Z
+E	113	issue_created	2026-08-12T09:00:00Z
+E	113	item_added	2026-08-12T09:00:00Z
+E	114	issue_created	2026-08-22T09:00:00Z
+E	114	item_added	2026-08-22T09:00:00Z
+E	114	pr_created	2026-08-23T09:00:00Z
+E	114	pr_merged	2026-08-24T09:00:00Z
+E	114	issue_closed	2026-08-24T09:00:00Z	COMPLETED
+P	201	101	MERGED	fix/101-resize-reflow	SUCCESS	https://github.com/example/repo/pull/201	Keep the last column across a reflow resize
+P	202	102	MERGED	fix/102-csi-reject	SUCCESS	https://github.com/example/repo/pull/202	Reject the malformed CSI sequence
+P	203	103	MERGED	fix/103-emoji-fallback	SUCCESS	https://github.com/example/repo/pull/203	Prefer a colour face for emoji fallback
+P	206	106	MERGED	revert/106-selection	SUCCESS	https://github.com/example/repo/pull/206	Revert "Clear selection on screen clear"
+P	208	108	MERGED	fix/108-truecolour	FAILURE	https://github.com/example/repo/pull/208	Parse SGR 38:2 as truecolour
+P	209	109	MERGED	fix/109-pty-fd	SUCCESS	https://github.com/example/repo/pull/209	Close the pty fd when a session detaches
+P	210	110	MERGED	fix/110-mouse-altscreen	ABSENT	https://github.com/example/repo/pull/210	Keep mouse reporting across an alt-screen switch
+P	214	114	MERGED	fix/114-config-reload	SUCCESS	https://github.com/example/repo/pull/214	Fail a reload that would drop unreloadable fields
+P	205	105	OPEN	fix/105-wide-glyph	PENDING	https://github.com/example/repo/pull/205	Wrap a wide glyph at the margin correctly

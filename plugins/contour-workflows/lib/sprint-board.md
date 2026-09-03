@@ -135,6 +135,28 @@ It states, in this order:
 Keep board *state* out of it beyond the single progress fraction. The fields carry state; prose
 restating them goes stale on the next merge, which is the failure the board exists to fix.
 
+## What the board cannot tell you about time
+
+The board holds the **current** value of every field and no record of when it got there. There is no
+field-history API reachable through `gh project`, so **no question of the form "how long has this
+been In Progress" has an answer from the board.** Anything shaped like one is reconstructed from
+issue, commit and PR timestamps — which measure different moments, and miss some entirely.
+
+Two absences are worth naming, because both look like data:
+
+- **`Blocked by` carries no timestamp.** How long an item has been blocked is recorded nowhere.
+  `updatedAt` is not a substitute; it moves for a label change.
+- **A `Status` set by hand leaves no trace of the value it replaced.** Reconciling it against the
+  branches corrects the present and recovers no past.
+
+This is what makes the dated snapshot below more than a convenience. A run of dated snapshots is the
+only durable status history this system has, so the one written today is what makes next week's
+"blocked for how long" answerable at all. A sprint that never took one has no history to report,
+only a present.
+
+`/sprint-performance` reconstructs what it can from timestamps and names what it could not determine
+rather than rounding it to the nearest neighbour.
+
 ## The tracking-issue mirror
 
 Reading a project board needs a token with `project` scope. A `repo`-scope session, a CI job, or a
@@ -153,6 +175,9 @@ It is a mirror, not a queue, and it says so in its own first lines: the board is
 
 The date is the load-bearing part. An undated mirror is indistinguishable from a second source of
 truth, and will be read as one.
+
+The dated snapshot is also the only status history the board keeps — see §*What the board cannot
+tell you about time* above.
 
 ## Ticket format
 

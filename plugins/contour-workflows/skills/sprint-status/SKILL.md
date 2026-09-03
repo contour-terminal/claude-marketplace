@@ -22,6 +22,9 @@ not rounded to the nearest neighbour.
 
 `$ARGUMENTS` names the board or milestone; with no argument, find it.
 
+This is a snapshot. For how the sprint is *trending* — throughput over time, where the time goes,
+what is aging — use `/sprint-performance`.
+
 ## Context
 
 - Repository: !`gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo "(unknown)"`

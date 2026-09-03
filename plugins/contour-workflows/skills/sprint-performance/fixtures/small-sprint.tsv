@@ -1,0 +1,31 @@
+M	mode	board
+M	board_title	Small sprint
+M	day0	2026-08-10
+M	day0_rung	R4
+M	day0_source	earliest commit across all tickets
+M	commits_source	git
+M	gathered_at	2026-08-20T12:00:00Z
+T	401	L core	P1 start	Done	1		https://github.com/example/repo/issues/401	A small sprint ticket 401
+E	401	issue_created	2026-08-10T09:00:00Z
+E	401	item_added	2026-08-10T09:00:00Z
+E	401	first_commit	2026-08-11T09:00:00Z
+E	401	pr_created	2026-08-12T09:00:00Z
+E	401	pr_merged	2026-08-13T09:00:00Z
+E	401	issue_closed	2026-08-13T09:00:00Z	COMPLETED
+P	500	401	MERGED	fix/401	SUCCESS	https://github.com/example/repo/pull/500	Fix 401
+T	402	L core	P1 start	Done	2		https://github.com/example/repo/issues/402	A small sprint ticket 402
+E	402	issue_created	2026-08-10T09:00:00Z
+E	402	item_added	2026-08-10T09:00:00Z
+E	402	first_commit	2026-08-12T09:00:00Z
+E	402	pr_created	2026-08-13T09:00:00Z
+E	402	pr_merged	2026-08-15T09:00:00Z
+E	402	issue_closed	2026-08-15T09:00:00Z	COMPLETED
+P	501	402	MERGED	fix/402	SUCCESS	https://github.com/example/repo/pull/501	Fix 402
+T	403	L core	P1 start	Done	3		https://github.com/example/repo/issues/403	A small sprint ticket 403
+E	403	issue_created	2026-08-10T09:00:00Z
+E	403	item_added	2026-08-10T09:00:00Z
+E	403	first_commit	2026-08-11T09:00:00Z
+E	403	pr_created	2026-08-14T09:00:00Z
+E	403	pr_merged	2026-08-15T09:00:00Z
+E	403	issue_closed	2026-08-15T09:00:00Z	COMPLETED
+P	502	403	MERGED	fix/403	SUCCESS	https://github.com/example/repo/pull/502	Fix 403
