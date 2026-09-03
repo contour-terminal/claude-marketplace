@@ -264,6 +264,30 @@ Then install from a local path to try changes before pushing:
 /plugin install contour-workflows@contour-terminal
 ```
 
+> **This is for local development only.** `marketplace add` with a path writes a
+> `directory` source into `settings.json`, pinned to an absolute path on *this*
+> machine:
+>
+> ```json
+> "contour-terminal": {
+>   "source": { "source": "directory", "path": "/home/you/projects/claude-marketplace" }
+> }
+> ```
+>
+> That entry shadows the `github` source above. Carry the file to a machine where the
+> path does not exist — a second workstation, a different `$HOME`, a container — and
+> the marketplace silently fails to resolve: it stops appearing in
+> `claude plugin marketplace list`, and every skill and hook the plugin provides stops
+> loading. Nothing in `settings.json` looks wrong — the plugin is still listed under
+> `enabledPlugins` — so the only symptom is that the commands are gone.
+>
+> Switch back before sharing or syncing `settings.json`:
+>
+> ```
+> /plugin marketplace remove contour-terminal
+> /plugin marketplace add contour-terminal/claude-marketplace
+> ```
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
