@@ -79,6 +79,10 @@ who holds a ticket, because a session is the least durable thing in the run.
 | `/sprint-run` | The manager loop: reconcile the board against the branches, check quiet lanes for unpushed work, merge in an order that will not conflict, dispatch the next ticket to each idle lane, take bug reports. Assigns and merges; writes no feature code. |
 | `/sprint-status` | Where the sprint stands — progress by phase, who has what, what is blocked and on what, where the board disagrees with the branches, and whether a quiet lane is sitting on uncommitted work. Read-only unless asked for a snapshot. |
 | `/sprint-dev <n>` | What a developer runs: `/work-issue` plus the constraints that only exist in a parallel run — stay in lane, push early, scope every gate explicitly, report to the manager and never to the user. |
+| `/sprint-performance` | How the sprint is trending rather than where it stands — throughput per day and per week, a burnup that shows scope changes instead of hiding them, cycle time split into queue/build/review with medians and p90, aging work in progress, integrity checks, and a forecast range rather than a date. Reconstructs the history the board does not store, from issue, commit and PR timestamps, and names what it could not determine. Renders as terminal tables and as a charted HTML report. Measures components, never people. |
+
+`/sprint-status` answers "where are we"; `/sprint-performance` answers "are we speeding up or slowing
+down, and which stage is slow". The first is a snapshot, the second a derivative.
 
 ### C++
 

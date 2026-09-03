@@ -1,0 +1,14 @@
+M	mode	board
+M	board_url	https://github.com/orgs/example/projects/8
+M	board_title	Empty sprint
+M	day0	2026-08-24
+M	day0_rung	R1
+M	day0_source	board createdAt
+M	commits_source	batch
+M	gathered_at	2026-08-28T12:00:00Z
+T	301	L vtbackend	P1 dispatch	Todo	1		https://github.com/example/repo/issues/301	Nothing has started yet
+T	302	N vtparser	P1 dispatch	Todo	2		https://github.com/example/repo/issues/302	Nor here
+E	301	issue_created	2026-08-24T09:00:00Z
+E	301	item_added	2026-08-24T09:00:00Z
+E	302	issue_created	2026-08-25T09:00:00Z
+E	302	item_added	2026-08-25T09:00:00Z
