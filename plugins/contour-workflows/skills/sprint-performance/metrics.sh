@@ -48,10 +48,10 @@ die() { printf 'sprint-metrics: %s\n' "$*" >&2; exit 1; }
 #   key|light|dark
 # ---------------------------------------------------------------------------------------------
 palette='bg|#ffffff|#15171b
-surface|#f6f7f9|#1c1f25
+surface|#f5f7fa|#1b1f26
 ink|#1f2328|#e6e8eb
 muted|#646b74|#9aa1ab
-grid|#e7eaee|#282d35
+grid|#e4e9ef|#272d36
 axis|#c9ced5|#3a414b
 accent|#3b6ea5|#6fa8dc
 done|#2f7d5d|#5cbf95
@@ -759,7 +759,7 @@ function render_html(   i) {
     if (FORMAT == "html") { print "</body>"; print "</html>" }
 }
 function emit_title() {
-    printf "<title>%s</title>\n", esc_h(meta["board_title"] != "" ? meta["board_title"] " — performance" : "Sprint performance")
+    printf "<title>%s</title>\n", esc_h(meta["board_title"] != "" ? meta["board_title"] : "Sprint performance")
 }
 function emit_style(   i) {
     print "<style>"
@@ -774,27 +774,30 @@ function emit_style(   i) {
     printf "}\n"
     print "*{box-sizing:border-box}"
     print "body{margin:0;background:var(--c-bg);color:var(--c-ink);"
-    print "font:15px/1.55 ui-sans-serif,-apple-system,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif}"
+    print "font:15px/1.6 ui-sans-serif,-apple-system,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif}"
+    print "body{--mono:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}"
     print ".wrap{max-width:900px;margin:0 auto;padding:32px 20px 72px}"
     print "h1{font-size:25px;letter-spacing:-.015em;margin:0 0 4px}"
-    print "h2{font-size:17px;letter-spacing:-.01em;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--c-grid)}"
-    print ".sub{color:var(--c-muted);font-size:13.5px;margin:0 0 26px}"
+    print "h2{font-size:16px;letter-spacing:.005em;margin:40px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--c-grid)}"
+    print ".sub{color:var(--c-muted);font-size:13.5px;margin:0 0 26px;max-width:68ch}"
     print "p{margin:10px 0}"
-    print ".note{color:var(--c-muted);font-size:13px;margin:8px 0 0}"
+    print ".note{color:var(--c-muted);font-size:13px;margin:8px 0 0;max-width:72ch}"
     print ".cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0}"
     print ".card{background:var(--c-surface);border:1px solid var(--c-grid);border-radius:9px;padding:11px 13px}"
-    print ".card .k{color:var(--c-muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.055em}"
-    print ".card .v{font-size:19px;font-variant-numeric:tabular-nums;margin-top:3px}"
+    print ".card .k{color:var(--c-muted);font:500 11px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.09em}"
+    print ".card .v{font:21px/1.25 var(--mono);font-variant-numeric:tabular-nums;margin-top:5px;letter-spacing:-.01em}"
     print ".card .s{color:var(--c-muted);font-size:12px;margin-top:2px}"
     print ".fig{background:var(--c-surface);border:1px solid var(--c-grid);border-radius:9px;padding:14px 12px 8px;margin:14px 0}"
     print "svg{display:block;width:100%;height:auto}"
-    print ".legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 2px 2px;font-size:12.5px;color:var(--c-muted)}"
+    print "svg text{font-family:var(--mono);font-variant-numeric:tabular-nums}"
+    print ".legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 2px 2px;font:11.5px/1.4 var(--mono);color:var(--c-muted)}"
     print ".legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}"
     print ".scroll{overflow-x:auto}"
     print "table{border-collapse:collapse;width:100%;font-size:13.5px;margin:12px 0}"
     print "th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--c-grid);white-space:nowrap}"
-    print "th{color:var(--c-muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}"
+    print "th{color:var(--c-muted);font:500 10.5px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.085em}"
     print "td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}"
+    print "td.n{font-family:var(--mono);font-size:12.5px}"
     print "td.t{white-space:normal;min-width:210px}"
     print "a{color:var(--c-accent);text-decoration:none}a:hover{text-decoration:underline}"
     print "code{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--c-grid);padding:1px 5px;border-radius:4px}"
@@ -862,7 +865,7 @@ function poly(a, n, x0, y0, y1, pw, ymax, pal, dash,   d, s, x, y) {
 }
 
 function chart_throughput(   W, H, ML, MR, MT, MB, x0, x1, y0, y1, pw, ph, ymax, d, bw, x, y, h) {
-    W = 760; H = 210; ML = 42; MR = 14; MT = 14; MB = 30
+    W = 760; H = 210; ML = 42; MR = 26; MT = 14; MB = 30
     x0 = ML; x1 = W - MR; y0 = MT; y1 = H - MB; pw = x1 - x0; ph = y1 - y0
     ymax = nice_max(maxm)
     svg_head(W, H, "Tickets delivered per day")
@@ -881,7 +884,7 @@ function chart_throughput(   W, H, ML, MR, MT, MB, x0, x1, y0, y1, pw, ph, ymax,
 }
 
 function chart_burnup(   W, H, ML, MR, MT, MB, x0, x1, y0, y1, pw, ymax, d, x) {
-    W = 760; H = 210; ML = 42; MR = 14; MT = 14; MB = 30
+    W = 760; H = 210; ML = 42; MR = 26; MT = 14; MB = 30
     x0 = ML; x1 = W - MR; y0 = MT; y1 = H - MB; pw = x1 - x0
     ymax = nice_max(csday[NDAYS - 1])
     svg_head(W, H, "Burnup: delivered against sequenced")
@@ -898,7 +901,7 @@ function chart_burnup(   W, H, ML, MR, MT, MB, x0, x1, y0, y1, pw, ymax, d, x) {
 }
 
 function chart_wip(   W, H, ML, MR, MT, MB, x0, x1, y0, y1, pw, ymax) {
-    W = 760; H = 180; ML = 42; MR = 14; MT = 14; MB = 30
+    W = 760; H = 180; ML = 42; MR = 26; MT = 14; MB = 30
     x0 = ML; x1 = W - MR; y0 = MT; y1 = H - MB; pw = x1 - x0
     ymax = nice_max(maxw)
     svg_head(W, H, "Work in flight per day")
