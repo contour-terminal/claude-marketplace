@@ -73,16 +73,27 @@ One manager session and two or three developer sessions, coordinated through a p
 Lanes are component ownership, so three branches cannot collide; the branch is the only record of
 who holds a ticket, because a session is the least durable thing in the run.
 
+A lane takes its tickets one at a time by default, or several onto a single branch when its queue is
+a few small tickets deep — see the `/sprint-dev` and `/sprint-batch` rows below.
+
 | Skill | What it does |
 |---|---|
 | `/sprint-plan` | Turns a goal, a milestone, a tracking issue or a pile of issues into a board with lanes, phases and an explicit order. Derives the lane split from `CODEOWNERS`, area labels or the source tree and confirms it before creating anything. Falls back to a milestone when there is no board or no `project` scope, and says which one it built. |
-| `/sprint-run` | The manager loop: reconcile the board against the branches, check quiet lanes for unpushed work, merge in an order that will not conflict, dispatch the next ticket to each idle lane, take bug reports. Assigns and merges; writes no feature code. |
+| `/sprint-run` | The manager loop: reconcile the board against the branches, check quiet lanes for unpushed work, merge in an order that will not conflict, dispatch each idle lane its next ticket — or its next run of them as a batch — and take bug reports. Assigns and merges; writes no feature code. |
 | `/sprint-status` | Where the sprint stands — progress by phase, who has what, what is blocked and on what, where the board disagrees with the branches, and whether a quiet lane is sitting on uncommitted work. Read-only unless asked for a snapshot. |
 | `/sprint-dev <n>` | What a developer runs: `/work-issue` plus the constraints that only exist in a parallel run — stay in lane, push early, scope every gate explicitly, report to the manager and never to the user. |
+| `/sprint-batch [n]` | The same developer role over several tickets at once: one lane's next `n` tickets onto one branch, one PR, one CI cycle, one merge. Each ticket keeps its own commits and closing trailer so a bad one can be excised rather than holding the rest. The count is a ceiling. |
 | `/sprint-performance` | How the sprint is trending rather than where it stands — throughput per day and per week, a burnup that shows scope changes instead of hiding them, cycle time split into queue/build/review with medians and p90, aging work in progress, integrity checks, and a forecast range rather than a date. Reconstructs the history the board does not store, from issue, commit and PR timestamps, and names what it could not determine. Renders as terminal tables and as a charted HTML report. Measures components, never people. |
 
 `/sprint-status` answers "where are we"; `/sprint-performance` answers "are we speeding up or slowing
 down, and which stage is slow". The first is a snapshot, the second a derivative.
+
+`/sprint-dev` and `/sprint-batch` are the same job at different granularity. Reach for the batch when
+CI waits and cross-lane rebases cost more than the tickets do: the compounding cost in a parallel run
+is the *merge*, because every merge moves the base under every other lane and restarts its CI, so a
+batch of `n` divides that by `n`. Reach for `/sprint-dev` when a ticket is large, its design is still
+open, or another lane is blocked on it — that one ships alone, since unblocking is the whole point of
+shipping it.
 
 ### C++
 

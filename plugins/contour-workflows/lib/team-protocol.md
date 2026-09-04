@@ -2,8 +2,8 @@
 
 Shared policy for running one repository with several Claude sessions at once — a **manager** that
 owns the board and the merges, and two or three **developers** that each hold a component.
-`/sprint-plan`, `/sprint-run`, `/sprint-status` and `/sprint-dev` read this file and cite its
-sections by heading.
+`/sprint-plan`, `/sprint-run`, `/sprint-status`, `/sprint-dev` and `/sprint-batch` read this file
+and cite its sections by heading.
 
 It exists because the interesting failures in a parallel run are not merge conflicts. They are
 *representation* failures: a value that says who is working on something and has quietly stopped
@@ -23,7 +23,9 @@ intake. **It does not write feature code.** When it does, it stops being able to
 reviewing its own work is how a wrong finding gets ratified twice. It also serialises work that
 could have run in parallel across lanes, which is the entire reason the team exists.
 
-Developers each work in their own git worktree, on their own branch, **one ticket at a time**.
+Developers each work in their own git worktree, on their own branch, **one ticket at a time** —
+unless the manager dispatched a batch, in which case one *batch* at a time and every ticket in it
+from one lane. See §*Batching a lane's tickets into one branch*.
 
 Developers never coordinate directly. Two developers agreeing on an interface is two developers
 writing it twice; the manager sequences that instead. A ticket that spans two lanes is **split into
@@ -84,6 +86,44 @@ For the live picture, read the linked pull requests plus `In Progress` versus `I
 treat *those* as the answer. A board's Status field is a manager's summary of that fact and can lag
 it; the branch is the fact.
 
+## Batching a lane's tickets into one branch
+
+A lane may take its next few tickets onto **one branch, one PR and one CI cycle** instead of one
+each. `/sprint-batch` does it; the manager dispatches it in place of `/sprint-dev` when a lane's
+queue is several small tickets deep.
+
+It is worth naming *why* rather than only *that*, because the saving is not where it looks. Per
+ticket, a lane pays for a plan approval, a whole-branch review, a PR, and a CI loop whose every pass
+rebuilds and re-tests the tree — but the compounding cost is the **merge**. Every merge moves the
+base under every other lane in flight, which forces their rebases, which restarts their CI. **The
+rebase train is driven by merge frequency**, so it is the merge count that a batch divides, and the
+other savings come along.
+
+What batching does not touch: the lane split, the review gates, the reporting route, or what `Done`
+means. A batch is still one lane, one branch, one developer, and it still holds only tickets that
+`Order` had adjacent within one `Phase`.
+
+Two constraints, both of them scars rather than tidiness.
+
+**A batch fails as a unit unless a ticket can be taken out of it.** One ticket that will not
+reproduce, or whose fix will not converge, otherwise holds every finished ticket beside it. So each
+ticket keeps **its own commits and exactly one closing trailer**, and excising it is a routine
+operation with a written recipe — not something improvised on the day, against a branch that is
+already several tickets deep and has been rebased since. The trailer is also the only durable
+boundary marker: `/absorb` and every autosquash rewrite the branch, so a ticket base recorded
+earlier is orphaned, and a range anchored to it silently widens to almost everything.
+
+**A batch hides a blocker.** A ticket another lane is waiting on must ship alone, because unblocking
+that lane is the entire reason to ship it, and a batch buries it behind work nobody is waiting for.
+That is a manager's judgement at dispatch, not the developer's at commit time.
+
+One consequence for reading the board: a batch branch sets **several** items `In Progress` at once
+and its merge sets several `Done`. Status is still derived from the branches and PRs — it is the
+1:1 assumption that goes, not the derivation. And nothing records the batch on the item: the branch
+already names every ticket it carries, so a `Batch` field would be a second home for a fact the
+branch holds, and it would be wrong the moment a ticket was excised. That is the same argument as
+§*Lane is a fact about the ticket, not about the session*.
+
 ## The claim is not the work
 
 A branch says what a session has **pushed**. It says nothing about what is sitting uncommitted in
@@ -116,7 +156,8 @@ The brief is: the ticket, its acceptance criteria, the lane and its paths, the w
 base branch, and every clause below.
 
 - **Stay in lane.** A change wanted outside your paths goes to the manager, not into your branch.
-- **One ticket at a time.** Finish or hand back before taking another.
+- **One ticket at a time**, or one batch if you were given one. Finish or hand back before taking
+  another.
 - **Push early**, half-finished included. See *The claim is not the work*.
 - **Reproduce before fixing.** A ticket that came out of a review pass may be wrong; a developer who
   cannot reproduce it reports back rather than "fixing" it. Prove a regression test fails without
@@ -183,6 +224,13 @@ Every developer, every PR, **scoped explicitly** as `<base>..<branch>`:
 - **At the end of each phase within a PR** — `/simplify`, then `/code-review medium --fix`
 - **Before handing the PR to the manager** — `/simplify`, then `/code-review high --fix`
 
+In a batch the schedule is the same one read against tickets rather than phases, and the saving is
+in the second line rather than the first: each ticket closes with `/code-review medium --fix` scoped
+to **its own commits alone**, so that cost stays proportional to one ticket; the `/simplify` and the
+`high` pass run **once for the branch**, where N separate PRs would have run them N times. The
+per-ticket `/simplify` is what moves, and it moves for a reason — run over the whole branch at the
+end, it is the first pass that can see duplication spanning two tickets at all.
+
 `/simplify` runs first by design. It is quality-only and does not hunt for bugs, so shrinking the
 change before the correctness pass means the review examines less code and its findings land on
 code that will actually ship, rather than on lines about to be deleted.
@@ -222,6 +270,10 @@ identically, get the state from somewhere else before acting on the rendering.**
 Merging is the manager's, and it is the only place `Done` is decided. **A ticket is Done when the
 PR that closes it has merged with CI green.** Nothing is Done on the strength of a branch, a local
 test run, or a review.
+
+One merge can decide it for several items. A batch PR closes every ticket whose trailer survived to
+the merge — so read the merged commits rather than the count of PRs, and check each ticket's
+acceptance clause rather than the batch's.
 
 Auto-merge alone never makes a branch up to date — enable it, then bring every branch reporting
 `BEHIND` up to the base:
