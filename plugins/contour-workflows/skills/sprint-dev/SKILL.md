@@ -17,6 +17,12 @@ a brief written by hand each time silently omits, which is exactly why they live
 `$ARGUMENTS` is the issue number, optionally followed by your lane. If either is missing, ask the
 manager rather than guessing; picking your own ticket is how two lanes end up in one file.
 
+This is one ticket to one branch to one PR. When a lane's next few tickets are small,
+`/sprint-batch` puts them on one branch instead — one CI cycle and one merge for all of them, which
+matters because every merge moves the base under the other lanes and restarts their CI. Stay here
+for a large ticket, one whose design is still open, or one another lane is blocked on: that last
+ships alone precisely because unblocking is the point.
+
 Bare `Bash` is deliberate here: `/work-issue` builds with whatever the repository uses, and a skill
 that invokes another has to cover what the callee runs.
 
@@ -66,7 +72,10 @@ chore classification and the CI loop. Everything below modifies how you run it.
 That includes the tempting ones — a one-line fix in a neighbouring file is exactly the change that
 collides, because the lane that owns it is probably editing it now.
 
-**One ticket at a time.** Finish or hand back before taking another.
+**One ticket at a time.** Finish or hand back before taking another. The manager may instead
+dispatch a run of them as a batch — that is `/sprint-batch`, and `lib/team-protocol.md`
+§*Batching a lane's tickets into one branch* is its contract. Do not turn one into the other on your
+own initiative; which tickets can share a branch is a decision made against the whole board.
 
 **Push early, half-finished included.** An incomplete pushed branch is recoverable; an unpushed one
 disappears with the worktree. Put the ticket number in the branch name — the branch is how the
