@@ -275,6 +275,39 @@ exists however reliable the messaging is.
 This is the same signature as the bug that lane was reviewing: *a run that finds nothing and a run
 that never reports produce the same observable.*
 
+### A forked `--fix` writes to the primary checkout, not to your worktree
+
+**The skill can fork itself into a background agent you did not ask for, and a forked review
+resolves paths against the primary working directory.** So `--fix` may apply its edits to the shared
+checkout rather than to the worktree you invoked it from — a tree on a different base, where other
+lanes' uncommitted work accumulates.
+
+Measured: a lane invoked `/code-review high --fix <base>..<branch>` from its own worktree to close a
+gate it had reported as skipped. The skill raised a background agent from inside its own fork,
+returned no handle the lane could withdraw, and then **worktree isolation refused the lane's own git
+commands against the primary checkout** — so the caller could neither prevent the write nor check
+whether one had happened.
+
+- **The scoping was correct and did not help.** An explicit range with the branch named, never
+  `HEAD`, is what makes the *review* be of the right commits. It says nothing about where the
+  *edits* land. Those are two different properties and only one of them is under the caller's
+  control.
+- **Whoever owns the primary checkout has to run the check**, because the lane structurally cannot.
+  Escalate rather than assume; the lane that hit this escalated immediately and was right to.
+- **Do not discard the findings.** The blanket rule — *discard a forked `--fix` run in whole rather
+  than triaging it item by item* — is about **edits applied to the wrong tree**. If the range was
+  scoped, the findings are of the correct commits and remain usable: apply them by hand in your own
+  worktree, then re-gate, because your last gate result describes the tree as it was pushed only
+  until you change it.
+
+**And a clean answer needs a proven instrument.** `git status --porcelain` returning nothing and a
+probe that cannot see anything render identically. Plant a file, confirm it is reported, remove it,
+confirm the count returns to zero — *then* report the tree clean. In the run above the manager also
+took a `find -newermt '-40 minutes'` as corroboration; its positive control over **30 days** also
+returned **0**, so that probe could not see files at all. It agreed with the correct verdict while
+measuring nothing, which is the most dangerous way for an instrument to be broken — it reads as
+confirmation.
+
 ## Reading a red check
 
 **A red check's cause matters more than its redness**, and the common tooling collapses the
