@@ -277,10 +277,16 @@ that never reports produce the same observable.*
 
 ### A forked `--fix` writes to the primary checkout, not to your worktree
 
-**The skill can fork itself into a background agent you did not ask for, and a forked review
-resolves paths against the primary working directory.** So `--fix` may apply its edits to the shared
-checkout rather than to the worktree you invoked it from — a tree on a different base, where other
-lanes' uncommitted work accumulates.
+**The skill can fork itself into a background agent you did not ask for, and from the caller's side
+the write target of that fork is not knowable.** `--fix` edits *some* tree; whether it is the
+worktree you invoked it from or the shared primary checkout — a tree on a different base, where
+other lanes' uncommitted work accumulates — is not something the caller can determine or control.
+
+Measured once each way, which is the point: in the run below the caller could not check at all, and
+in a second run on the same repository the fork wrote into its **own** agent worktree
+(`.claude/worktrees/agent-<id>`), consistent with the primary tree being clean. So *"it writes to
+the primary"* is too strong and *"it writes to your worktree"* is unfounded. The reliable statement
+is the narrow one: **you do not know where it wrote, and you cannot look.**
 
 Measured: a lane invoked `/code-review high --fix <base>..<branch>` from its own worktree to close a
 gate it had reported as skipped. The skill raised a background agent from inside its own fork,
