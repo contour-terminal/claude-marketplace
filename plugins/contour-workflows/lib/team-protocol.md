@@ -244,6 +244,37 @@ Name the branch in the range rather than `HEAD`: `HEAD` resolves against the pri
 `<sha>..HEAD` range inverts into a giant revert diff whenever the primary is behind. Branches made
 in a linked worktree are visible from the primary one, so naming the branch always works.
 
+### `--fix` edits before it reports, and silence is not cleanliness
+
+**A `--fix` run has no guaranteed terminal report, so never treat "no message" as "no findings".**
+Measured: a `/code-review high --fix` applied a real one-line change plus a comment block to a
+lane's worktree and said nothing at the time; its report arrived long after the lane had given up
+and told its manager to record the gate as NOT RUN. The review itself was sound — the defect is the
+channel.
+
+Three consequences, and the second is the one that bites hardest:
+
+- **A silent edit can be absorbed into somebody else's commit.** The lane happened to run
+  `git commit --amend -F`, so the change stayed unstaged and it noticed. `git commit -a` would have
+  swallowed it into a commit whose message describes something else — **a commit message that is a
+  true statement about a subset of its own diff**, which nothing downstream flags.
+- **"One finding, applied" and "several found, one applied, the rest dropped" are indistinguishable
+  from the caller's side.** A working tree shows what was changed; it cannot show what was found and
+  declined. That lane had to *ask* to learn there were three findings, two deliberately not applied.
+  Unasked, both would have been lost.
+- **It collides with the gate**, which runs `clang-format -i`. An unannounced `--fix` landing mid-gate
+  is the *"the wrapper was edited WHILE bash was executing it"* failure, avoided by timing rather
+  than by design.
+
+So, as the caller: **before gating, `git status` the worktree and account for anything you did not
+write**; and **ask a `--fix` run for its complete findings list rather than reading the diff**, since
+the declined half is the half no tree can show. As the reviewer: **announce before editing, or edit
+a copy and hand over a patch** — the window between writing and announcing is the hazard, and it
+exists however reliable the messaging is.
+
+This is the same signature as the bug that lane was reviewing: *a run that finds nothing and a run
+that never reports produce the same observable.*
+
 ## Reading a red check
 
 **A red check's cause matters more than its redness**, and the common tooling collapses the
