@@ -323,9 +323,25 @@ The trap is that both obvious responses are wrong:
 - **Proceeding while it may still write** is the *"the wrapper was edited while bash was executing
   it"* failure — a late `--fix` lands edits computed against a tree that no longer exists.
 
-So: **abandon it, and proceed on a gate that still covers the same code.** In a batch that is Step
-6's branch-wide `high`, which sees the abandoned ticket's commits too — the per-ticket `medium` is a
-convenience, not the only correctness pass. Then:
+So: **proceed without it — but do not throw it away.** Those are different instructions and the
+difference is expensive.
+
+**Measured, second instance, same repository, same night**: a batch `high` ran **2h20m** with no
+output and no reply to a status ping, indistinguishable from the wedged one above for most of it —
+and then returned a **blocking** finding that four other review passes and the author had all
+missed, a false pass in a newly-added guard that made it green over an unguarded transport. Had the
+lane abandoned and discarded on the reasoning that fit the first case, that finding would have been
+lost.
+
+So the correct reading of a long-running review is **unbounded latency, not silence**. Do not block
+on it; do continue to accept it. Concretely: unblock yourself on a gate that still covers the same
+code — in a batch that is Step 6's branch-wide `high`, which sees the abandoned ticket's commits too,
+since the per-ticket `medium` is a convenience rather than the only correctness pass — and then:
+
+- **A late verdict is still a verdict. Read it and act on it**, even after you have pushed. A fix on
+  top costs less than a lost finding.
+- **Report "returned no verdict" only if it never returned.** If it returned late, say that: the
+  problem was latency, and calling it silence misrepresents both the run and the skill.
 
 - **`git status` before gating and account for every change you did not write.** If the run wakes up
   and edits, treat those edits as suspect *in whole* rather than triaging them line by line.
