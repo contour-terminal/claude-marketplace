@@ -306,6 +306,33 @@ whether one had happened.
   worktree, then re-gate, because your last gate result describes the tree as it was pushed only
   until you change it.
 
+### A forked `--fix` can wedge, and wedged is indistinguishable from clean
+
+**It may run unboundedly with no handle the caller can withdraw**, and from outside a run that is
+still working and a run that finished finding nothing produce the same silence.
+
+Measured: a lane launched `/code-review medium --fix <range>` as a phase gate. The run confirmed by
+message that it was live on that lane's worktree and asked for hands off until it reported. It was
+still running **35 minutes later**, after two chases with no reply, with the lane correctly refusing
+to edit the tree underneath it.
+
+The trap is that both obvious responses are wrong:
+
+- **Waiting longer** hands the lane an unbounded stall, and there is no signal that will ever
+  distinguish the two states.
+- **Proceeding while it may still write** is the *"the wrapper was edited while bash was executing
+  it"* failure — a late `--fix` lands edits computed against a tree that no longer exists.
+
+So: **abandon it, and proceed on a gate that still covers the same code.** In a batch that is Step
+6's branch-wide `high`, which sees the abandoned ticket's commits too — the per-ticket `medium` is a
+convenience, not the only correctness pass. Then:
+
+- **`git status` before gating and account for every change you did not write.** If the run wakes up
+  and edits, treat those edits as suspect *in whole* rather than triaging them line by line.
+- **Report it as "the review returned no verdict"** — never "the review ran", never "found nothing".
+  That distinction survives only in the report.
+- A late verdict is still a verdict. Read it if it arrives; do not wait for one.
+
 **And a clean answer needs a proven instrument.** `git status --porcelain` returning nothing and a
 probe that cannot see anything render identically. Plant a file, confirm it is reported, remove it,
 confirm the count returns to zero — *then* report the tree clean. In the run above the manager also
