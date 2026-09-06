@@ -162,7 +162,13 @@ carried nothing and whose *commit* carried `Fixes #741` left the issue **open**,
 closed by hand. Same mechanism, same queue — the only difference was where the keyword sat.
 
 So carry them in both places when a merge queue is enabled, and keep the body list in sync when Step
-8 drops a ticket. That reintroduces exactly the prose-editing this rule was written to avoid, which
+8 drops a ticket.
+
+**And do not verify them with `git log --format='%(trailers:key=Fixes,…)'`.** Git's trailer parser
+wants `Key: value`; the GitHub closing keywords are `Fixes #N` with **no colon**, so that query
+returns **empty** for a commit that carries them — and an empty result there is indistinguishable
+from a missing trailer, which is the failure you were checking for. Read `%B` and match the keyword
+yourself. That reintroduces exactly the prose-editing this rule was written to avoid, which
 is the cost of the queue and not a reason to skip it: **an unclosed ticket is silent**, and a board
 that still shows delivered work as open is the state every other rule here exists to prevent. Check
 after merging rather than assuming — `gh issue view <n> --json state` — because nothing warns you.
