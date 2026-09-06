@@ -151,9 +151,21 @@ composition; the body takes that file's §*Composing the title and body* **Large
 the goal paragraph naming the batch and the `## Changes` bullets grouped one per ticket. `/draft-pr`
 never promotes the PR — that is the author's call and stays so.
 
-**Keep every closing keyword on the commits and out of the PR body.** Then excising a ticket in Step
-8 removes its trailer mechanically, instead of depending on somebody remembering to edit prose that
-still promises to close it.
+**Keep every closing keyword on the commits** — then excising a ticket in Step 8 removes its trailer
+mechanically, instead of depending on somebody remembering to edit prose that still promises to
+close it.
+
+**But under a merge queue the commit trailer does not close anything, so the PR body needs the
+keywords too.** Measured on one repository in one night, two PRs merged the same way twenty minutes
+apart: the one whose *body* carried `Fixes #376` closed its issue on merge; the one whose body
+carried nothing and whose *commit* carried `Fixes #741` left the issue **open**, and it had to be
+closed by hand. Same mechanism, same queue — the only difference was where the keyword sat.
+
+So carry them in both places when a merge queue is enabled, and keep the body list in sync when Step
+8 drops a ticket. That reintroduces exactly the prose-editing this rule was written to avoid, which
+is the cost of the queue and not a reason to skip it: **an unclosed ticket is silent**, and a board
+that still shows delivered work as open is the state every other rule here exists to prevent. Check
+after merging rather than assuming — `gh issue view <n> --json state` — because nothing warns you.
 
 Keep pushing at each ticket boundary. CI now runs alongside the rest of the batch and costs nothing
 to ignore, which is the point: the wait overlaps the work instead of following it.
