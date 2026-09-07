@@ -1,6 +1,6 @@
 ---
 name: sprint-dev
-description: Work one sprint ticket to a merge-ready PR as a developer in a lane — everything /work-issue does, plus the constraints that only apply when two or three other sessions are changing the same repository at the same time. Use when a manager dispatches you a ticket, when you are spawned as a developer teammate, or when joining a sprint lane. Findings go to the manager, never to the user.
+description: Work one sprint ticket to a merge-ready PR as a developer in a lane — everything /work-issue does, plus the constraints that only apply when two or three other sessions are changing the same repository at the same time. Use when a manager dispatches you a ticket, when you are spawned as a developer teammate, when joining a sprint lane, or when a user asks for one ticket taken to a merge-ready PR. Findings go to whoever dispatched you.
 argument-hint: "<issue-number> [lane]"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, SendMessage
 ---
@@ -114,10 +114,12 @@ or ran somewhere you cannot verify, say so in those words.
 
 Prove a regression test fails without the fix, not merely that it passes with it.
 
-## Step 5 — Hand back to the manager
+## Step 5 — Hand back to whoever dispatched you
 
-You do not merge. Report to the manager — by `SendMessage` if you are a subagent or peer session,
-otherwise as your final message — with:
+You do not merge. Report to **whoever asked for the ticket** — `SendMessage` to the manager when one
+dispatched you as a subagent or peer session; your final message, to the user, when a user invoked
+this skill directly. There is no manager in that second arrangement, and a run that finishes by
+telling nobody anything is a run that did not happen. Report with:
 
 - The PR, and CI's actual state.
 - The acceptance clause, and what demonstrates it.
@@ -141,8 +143,10 @@ the user the chip is safe to dismiss. Do not call task-spawning tools yourself.
 
 - **NEVER change a file outside your lane.** Report it instead.
 - **NEVER work in the primary checkout.**
-- **NEVER report to the user.** Findings, blockers, scope growth and disagreements go to the
-  manager.
+- **NEVER report to a second audience.** Findings, blockers, scope growth and disagreements go to
+  whoever dispatched you — the manager under a sprint, the user when a user invoked this skill
+  directly. Under a manager nothing goes to the user; there is no arrangement in which both are
+  told.
 - **NEVER call a task-spawning tool.** If a skill did it for you, say so and restate the finding.
 - **NEVER run a review or simplify gate unscoped**, and never with `HEAD` in the range.
 - **NEVER restart a shared service.** That is the manager's to serialise.

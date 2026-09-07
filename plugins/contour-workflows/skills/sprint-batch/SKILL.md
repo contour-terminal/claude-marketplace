@@ -1,7 +1,7 @@
 ---
 name: sprint-batch
-description: Work several sprint tickets from one lane onto a single branch, so one pull request, one CI cycle, one rebase and one merge cover all of them instead of one each. Use when a manager dispatches a run of tickets rather than a single one, when a lane's queue is several small tickets deep, or when CI waits and cascading cross-lane rebases are costing more than the tickets themselves. The count is a ceiling, not a quota. Findings go to the manager, never to the user.
-argument-hint: "[count] [lane]"
+description: Work several sprint tickets onto a single branch, so one pull request, one CI cycle, one rebase and one merge cover all of them instead of one each. Use when a manager dispatches a run of tickets rather than a single one, when a lane's queue is several small tickets deep, when a user asks for a run of tickets or the sprint as a whole, or when CI waits and cascading rebases are costing more than the tickets themselves. The batch may span lanes — its scope is the dispatcher's, and avoiding collisions with live work is the manager's job. The count is a ceiling, not a quota. Findings go to whoever dispatched you.
+argument-hint: "[count] [lane|--sprint]"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Skill, EnterPlanMode, ExitPlanMode, SendMessage
 ---
 
@@ -55,19 +55,44 @@ Read these and cite their sections by heading rather than restating them:
 - `${CLAUDE_PLUGIN_ROOT}/lib/git-safety.md` — §*Force-pushing safely*, which Steps 7 and 8 need.
 - `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` — §*Classification*, for what you find and do not
   fix.
+- `lib/queue-watch.md` — only if this batch ends up as more than one pull request, or you are
+  watching the sprint's queue rather than one branch.
 
 ## Step 2 — Establish where you are, and choose the batch
 
 Three facts first, exactly as `/sprint-dev` §*Step 2 — Establish where you are* establishes them:
-**your own worktree** never the primary checkout, **your lane's paths**, and the base branch
-resolved rather than assumed with `git symbolic-ref --short refs/remotes/origin/HEAD`.
+**your own worktree** never the primary checkout, **which paths this batch may touch**, and the base
+branch resolved rather than assumed with `git symbolic-ref --short refs/remotes/origin/HEAD`.
 
-Then choose the tickets. Walk your lane's `Todo` items in ascending `Order` and **stop — do not skip
-past — at the first of these**, taking however many you collected:
+### The scope is whatever the manager gave you, and it may be the whole sprint
+
+A batch is **not** confined to one lane. Given a run of tickets spanning several lanes — or asked to
+work the sprint as a whole — take them.
+
+**Collision avoidance is the manager's responsibility, not a rule this skill enforces by refusing.**
+The lane split exists so that several *concurrent* sessions do not land in the same files; it is a
+scheduling device owned by whoever schedules. When one session is working a run of tickets, the
+question is not "are these in one lane" but "is anything else live that these could collide with",
+and only the manager can answer it.
+
+So: if a manager dispatched this batch, the scope is theirs and you work it. **If a user invoked this
+skill directly, you are the manager** — do the collision analysis yourself before you start, and say
+what you concluded:
+
+- List what is actually in flight: other worktrees with unpushed or unmerged work, open PRs, and
+  running teammate sessions. A lane with nothing live collides with nothing.
+- **The hazard is a NAME shared between two changes, not a line shared between two diffs.** Two
+  branches can touch disjoint files and still fail together, because one renamed a function the
+  other started calling — and no diff shows a name it does not mention. File overlap is evidence
+  only in the direction that says there *is* a hazard; its absence is evidence of nothing.
+- Where you cannot rule a collision out, either sequence the batch after the other work or leave
+  those tickets out. Say which you did.
+
+Then choose the tickets. Walk the `Todo` items in ascending `Order` and **stop — do not skip past —
+at the first of these**, taking however many you collected:
 
 | Stop at | Why |
 |---|---|
-| A ticket in another lane | Cross-lane batching reintroduces exactly the collision the lane split exists to prevent |
 | A ticket in another `Phase` | A phase is *what becomes true when it completes*; batching across the boundary makes that signal arrive mixed with unrelated work, and the next phase's items may be waiting on another lane |
 | A `Blocked` ticket whose blocker has not merged | `Blocked by` is free text, so you cannot prove the tickets after it do not depend on it either |
 | A ticket with no **Acceptance** clause | One that can only be closed by opinion gets argued about at merge review — and here it takes the whole batch with it. Ask the manager for one |
@@ -205,6 +230,14 @@ glab ci status                         # GitLab
 One backgrounded blocking wait costs one round trip for a run of any length. A poll loop costs one
 per poll and learns nothing extra.
 
+That is the single-PR case, and it is the one this skill is usually in. When you are holding
+**several** pull requests open at once — a batch that was split, or a manager working the sprint
+directly — `lib/queue-watch.md` is the multi-PR form: one backgrounded loop that watches them all,
+arms what is not armed, and prints one line per tick. Read its rules before writing your own loop;
+they are all scars, and the one that bites first is that a PR already in the merge queue reports
+`autoMergeRequest` as **null**, so the obvious "is it armed" predicate answers *no* for the one
+state that needs no arming.
+
 Red is not simply red. Ask for the state explicitly with `gh pr checks <n> --json name,state` before
 diagnosing anything — `lib/team-protocol.md` §*Reading a red check* has why, and why a red that
 follows a multi-label edit is usually self-inflicted and clearing itself. Then invoke `/fix-ci`,
@@ -244,10 +277,16 @@ the manager so the board item goes back to `Todo`.
 declared it.** Hand the whole batch back to the manager to re-sequence. Do not invent the missing
 dependency's resolution inside a branch that was built on the assumption it did not exist.
 
-## Step 9 — Hand back to the manager
+## Step 9 — Hand back to whoever dispatched you
 
-You do not merge. Report once — by `SendMessage` if you are a subagent or peer session, otherwise as
-your final message — and report **per ticket**, not per batch:
+You do not merge. **Report to whoever asked for the batch**, and that is not always a manager:
+
+- Dispatched by a manager, as a subagent or peer session -> `SendMessage` to the manager.
+- **Invoked directly by a user -> your final message, to the user.** There is no manager in that
+  arrangement, and a run that finishes by telling nobody anything is a run that did not happen. Do
+  not go looking for a manager to address; the person who typed the command is the audience.
+
+Report **per ticket**, not per batch:
 
 - Every ticket: delivered or dropped, and for a dropped one, why and what it needs.
 - Each delivered ticket's acceptance clause, and what demonstrates it.
@@ -260,10 +299,11 @@ your final message — and report **per ticket**, not per batch:
 Then two lines the manager cannot get anywhere else: **which tickets share this branch**, so the
 merge is known to close all of them at once, and **the single CI state that covers them all**.
 
-**Everything goes to the manager and nothing to the user.** If a skill raised a background-task chip
-from inside its own fork — some do, without you choosing to — say so and restate the finding in
-full, so the manager can act on it and tell the user the chip is safe to dismiss. Do not call
-task-spawning tools yourself.
+**Findings go to whoever dispatched you, and to exactly one audience.** Under a manager that means
+the manager and not the user, so a report does not arrive twice in different words. Invoked directly
+it means the user. If a skill raised a background-task chip from inside its own fork — some do,
+without you choosing to — say so and restate the finding in full, so whoever is reading can act on
+it and knows the chip is safe to dismiss. Do not call task-spawning tools yourself.
 
 ## Rules
 
@@ -276,7 +316,9 @@ task-spawning tools yourself.
 - **NEVER trust a ticket base across a rebase.** Re-derive the boundaries from the trailers.
 - **NEVER run a review gate unscoped**, and never with `HEAD` in the range.
 - **NEVER change a file outside your lane**, however small, and however large the branch already is.
-- **NEVER report to the user.** Findings, blockers and scope growth go to the manager.
+- **NEVER report to a second audience.** Findings, blockers and scope growth go to whoever
+  dispatched you — the manager under a sprint, the user when a user invoked this skill directly.
+  Under a manager, nothing goes to the user; there is no arrangement in which both are told.
 - **ALWAYS give each ticket its own commits and exactly one closing trailer.** It is what makes the
   ticket excisable and what marks it `Done` on merge.
 - **ALWAYS push at every ticket boundary**, half-finished work included.
