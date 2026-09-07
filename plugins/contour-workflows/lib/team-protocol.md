@@ -166,12 +166,18 @@ base branch, and every clause below.
   rebase landed is poisoned — mixed object vintages, a result describing a tree that never existed.
 - **Say which gate actually ran.** Not that one did. A gate that could not start and a gate that
   found nothing produce the same silence, and only one of them is good news.
-- **Report findings to the manager. Never to the user.** See *Reporting to the manager*.
+- **Report findings to whoever dispatched you, and to one audience only.** Under a manager that is
+  the manager, never the user. See *Reporting to the manager*.
 
 ## Reporting to the manager
 
 Everything a developer discovers routes to the manager: findings, blockers, scope growth,
 pre-existing bugs, and disagreements with the ticket. Nothing goes to the user directly.
+
+**That holds while a manager exists.** These skills are also invocable directly by a user, and then
+there is no manager to route to — the person who typed the command is the audience, and a run that
+reports to nobody because it was looking for a manager has thrown its own findings away. The rule is
+*one* audience, not *never the user*.
 
 This is not deference. Work injected outside the lane split starts in files another developer is
 holding, and it puts the user in the position of dispatching work they have no way to evaluate —

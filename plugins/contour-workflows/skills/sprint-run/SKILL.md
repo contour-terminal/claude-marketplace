@@ -44,6 +44,11 @@ Read these and cite their sections by heading rather than restating them:
 - `${CLAUDE_PLUGIN_ROOT}/lib/adjacent-problems.md` — §*Classification* and §*Routing an adjacent
   problem*, for what developers send you.
 
+Read `lib/queue-watch.md` too, before the first round in which more than one pull request is
+open. Its rules are scars; the one that bites first is that a PR already in the merge queue reports
+`autoMergeRequest` as **null**, so the obvious "is it armed" predicate answers *no* for the one
+state that needs no arming.
+
 ### Step 0.1 — Reconcile the board against reality
 
 **Do this before dispatching anything, every time you start or resume.** A `Status` field is a
@@ -96,6 +101,14 @@ lane that is stuck reads as a lane that is busy.
 
 Phase 3. Merging comes before dispatching, because a merged PR frees a lane and may unblock a
 ticket that is currently `Blocked`.
+
+**Do not spend a round trip per PR asking whether CI is done.** Once more than one pull request is
+open, start the watcher in `lib/queue-watch.md`: one backgrounded loop that watches every open PR,
+arms auto-merge on whatever is not armed, and prints one line per tick carrying the numbers you
+would otherwise ask for separately. It converts *N* round trips into one, which on a sprint of three
+or four PRs is the dominant token cost of the round.
+
+It arms and reports; it never fixes. A red still comes back to you, by name, and you decide.
 
 ### Step 1.3 — Dispatch what is next
 
