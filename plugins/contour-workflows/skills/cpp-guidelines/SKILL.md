@@ -1,6 +1,6 @@
 ---
 name: cpp-guidelines
-description: The C++23 coding standards and load-bearing design principles used across Contour Terminal projects — error handling with std::expected, dependency injection, configuration at construction time, enum class over bool in API surface, data-driven design, testability, and the zero-warning policy. Load before writing, reviewing, or refactoring C++ in these repositories, or when deciding how to structure a new module, class, or fallible API.
+description: The C++23 coding standards and load-bearing design principles used across Contour Terminal projects — error handling with std::expected, dependency injection, configuration at construction time, enum class over bool in API surface, binary literals for bit patterns, data-driven design, testability, and the zero-warning policy. Load before writing, reviewing, or refactoring C++ in these repositories, or when deciding how to structure a new module, class, or fallible API.
 allowed-tools: Read, Grep, Glob
 ---
 
@@ -86,6 +86,7 @@ The parameter case carries all three costs at once:
   truly orthogonal and every combination is legal, the answer is one bitmask type — not an
   `enum class` per flag, and not an enum of states. Protocol-defined bit positions are the usual
   case, and are why `cppcoreguidelines-use-enum-class` is sometimes deliberately disabled.
+  How those bit positions are spelled is *Binary literals for bit patterns*, below.
 - **A strong typedef is the other acceptable shape** where a value must stay boolean in behaviour
   but distinct in type: `using Handled = boxed::boxed<bool, HandledTag>;`. Reach for it when the
   type name supplies the meaning and the two states have no better names of their own.
@@ -127,6 +128,41 @@ first move, and what it then reports is the finding, not noise. Where a `bool` i
 kept, `bugprone-argument-comment` with `CommentBoolLiterals` (off by default, even when
 `bugprone-*` is on) turns `/*wrap=*/true` into a *checked* comment rather than a hopeful one — a
 mitigation, not a substitute for the type.
+
+### Binary literals for bit patterns
+
+**A value whose meaning is its bits is written as a binary literal.** `0b0001`, not `1U << 0U`;
+`0b1101'0101`, not `0xD5`. Bit flags, masks, and any constant a reader has to reason about
+positionally: the spelling shows the bit pattern, because the pattern is the thing being
+asserted. Group with `'` on nibble boundaries once a value exceeds four bits:
+
+```cpp
+constexpr std::uint32_t Keyspace = 0b00'0001;
+constexpr std::uint32_t Expired  = 0b01'0000;
+constexpr std::uint32_t Evicted  = 0b10'0000;
+```
+
+so a reader locates bit 4 by looking rather than by counting shifts. That counting is the cost
+the shift form imposes, and it is why a wrong bit in a flag set reviews past so easily:
+`1U << 4` and `1U << 5` differ by one character in a position the eye does not check, where
+`0b01'0000` and `0b10'0000` differ in shape.
+
+**The rule is about meaning, not about the operator.** The discriminator is what the number *is*:
+
+- `1 << 20` for a 1 MiB buffer size is a **magnitude** that happens to be a power of two. As a
+  binary literal it becomes twenty-one unreadable characters asserting a bit pattern nobody
+  cares about. A shift is right for a size.
+- `0b0100` for a component flag is **bit 2**, whose value is uninteresting except as a position.
+  A binary literal is right for a flag.
+
+**A composed mask stays composed.** `All = Generic | String | Expired | Evicted` says what it
+means. Flattening it to a literal replaces a statement a reader can check against the four names
+with one they cannot check at all, and it silently stops tracking when a fifth class is added.
+
+**Enforcement.** A review question — clang-tidy has no check for this, and the obvious one would
+do harm. The sound signal is not the shift operator, since the magnitude case shares it, but a
+*run* of constants shifting `1` by consecutive counts: a lone `1 << 20` is a size, four in a row
+are a flag set. A check keyed on the operator alone would flag correct code.
 
 ### Dependency injection
 
