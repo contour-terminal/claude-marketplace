@@ -159,10 +159,65 @@ After Claude edits or writes a C/C++ file, the file is reformatted in place with
 It is deliberately conservative and no-ops unless every condition holds:
 
 - the edited file has a C/C++ extension,
-- `clang-format` is on `PATH`,
-- a `.clang-format` file exists at or above the file's directory.
+- a `.clang-format` file exists at or above the file's directory,
+- a `clang-format` is found — and, when the project declares the build it is judged by, that
+  build exactly (below).
 
 So it stays silent in non-C++ repos and in C++ repos that don't define a style.
+
+#### Declaring the formatter build: `.clang-format-version`
+
+Two clang-format builds can disagree about the same file — including two that print the same
+release number. A CI job that installs a distribution snapshot and a developer's IDE-bundled
+binary are both "22.1.x" and are not the same formatter, and a formatter at the wrong build
+rewrites code the project's own style check already accepted. Every line of that diff is "just
+formatting", so review does not catch it; the check does, after the push. Running such a binary
+with a write on every edit is the worst place for it.
+
+A project states which build it is judged by in a `.clang-format-version` file at or above the
+edited file (the nearest one applies):
+
+```
+# The clang-format build CI checks formatting with.
+version: Ubuntu clang-format version 22.1.8 (++20260714014902+ca7933e47d3a-1~exp1~20260714135019.80)
+binary: clang-format-22
+```
+
+| Key | Meaning |
+|---|---|
+| `version` | The first line of `clang-format --version`, compared **exactly** — vendor prefix and build suffix included, because the suffix is what tells two same-numbered builds apart. Repeatable; each line is one accepted build. At least one is required. |
+| `binary` | A command name to try before plain `clang-format`, such as `clang-format-22`. Repeatable, tried in order. Must be `clang-format` or `clang-format-*` and resolved on `PATH` — never a path, so a committed file cannot make the hook execute something the repository ships, or something that is not a formatter. |
+
+Blank lines and `#` comments are ignored; anything else is an error. Take the `version` line from
+the formatter your CI actually runs — its log, or `clang-format-22 --version` in the same image —
+not from the one on your machine.
+
+What the hook then does:
+
+| Situation | Writes? | Tells Claude |
+|---|---|---|
+| Declared, and some candidate reports a declared build | yes, with that build | that it reformatted the file, and with which build (only when the file changed) |
+| Declared, and no candidate reports a declared build | **no** | once per file per session: the expected builds and every binary it found with what each reported, so the session formats with the declared build itself |
+| Declared, but the file cannot be used (unknown key, no `version`, a bad `binary`) | **no** | once per file per session: what is wrong with the declaration |
+| No declaration | yes, with the first `clang-format` on `PATH` — the behaviour before declarations existed | that it reformatted the file, naming the build it used and that the project declares none |
+| No declaration and no `clang-format` | no | nothing |
+
+Every candidate is tried: each declared `binary`, then `clang-format`, and for each name **every**
+match on `PATH`, not just the first — so a correct build further down `PATH` is still found behind
+an IDE-bundled one.
+
+A project with no declaration keeps the old behaviour on purpose: it states no build, so it cannot
+be wrong about one, and switching the hook off for every project that has not adopted the file
+would be a silent regression. Once a project's CI pins a formatter, though, it should declare it —
+and ideally have CI assert that the formatter it installed still matches the declaration, so a
+change of build on the CI side is a loud one-line update rather than a silent disagreement.
+
+The formatter runs from the file's own directory on a relative path. A user-side wrapper on `PATH`
+that forwards its arguments into another environment — for instance a `clang-format-22` script
+calling `wsl.exe -e clang-format-22 "$@"` on Windows — therefore needs no path translation, and is
+held to the declaration like any other candidate: its `--version` must report the declared build.
+That wrapper belongs to one developer's machine, which is why the declaration itself has no way to
+name one.
 
 ### kill guard (PreToolUse)
 
@@ -271,6 +326,18 @@ habits that are fine in a personal skill:
 ```
 claude plugin validate ./plugins/contour-workflows --strict
 ```
+
+A change to the clang-format hook runs its tests, which drive the real hook against fake
+formatters — and `--mutants`, which breaks one property of the hook at a time and requires exactly
+the cases that exist for that property to fail. CI runs both on Linux and on macOS's bash 3.2:
+
+```
+bash scripts/test-clang-format-hook.sh
+bash scripts/test-clang-format-hook.sh --mutants
+```
+
+A new case for a new property gets a mutant row too; a suite that has only been seen passing has
+not been seen to test anything.
 
 Then install from a local path to try changes before pushing:
 
