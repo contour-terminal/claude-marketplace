@@ -25,9 +25,8 @@
 # So a project may state which build it is judged by, in a `.clang-format-version`
 # file at or above the edited file (the nearest one wins):
 #
-#     # The clang-format build CI checks formatting with.
-#     version: Ubuntu clang-format version 22.1.8 (++20260714014902+ca7933e47d3a-1~exp1~20260714135019.80)
-#     binary: clang-format-22
+#     # The clang-format build CI checks formatting with: PyPI's clang-format==22.1.8.
+#     version: clang-format version 22.1.8
 #
 #   version:  the first line of `clang-format --version`, compared EXACTLY — the whole
 #             line, vendor prefix and build suffix included, because the build suffix is
