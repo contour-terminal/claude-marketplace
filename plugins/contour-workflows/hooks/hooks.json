@@ -1,5 +1,5 @@
 {
-  "description": "clang-format on C/C++ edits (when the project defines a .clang-format style), and a guard that blocks name-matched kills of the contour daily driver",
+  "description": "clang-format on C/C++ edits (when the project defines a .clang-format style; only with the exact build a .clang-format-version declares, where one does), and a guard that blocks name-matched kills of the contour daily driver",
   "hooks": {
     "PreToolUse": [
       {

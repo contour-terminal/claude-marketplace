@@ -39,3 +39,49 @@ jobs:
         run: |
           shellcheck --version
           find . -path ./.git -prune -o -name '*.sh' -print0 | xargs -0 --no-run-if-empty shellcheck
+
+  # The clang-format hook against fake formatters, on the three shells it runs under:
+  # bash 5 on Linux, Git Bash on Windows (the only leg with drive-letter paths), and
+  # macOS's /bin/bash, which is 3.2 — the version the hook's constraints are written
+  # for, and one no Linux runner has.
+  hooks:
+    name: Hook tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bash: bash
+            mutants: true
+          - os: macos-latest
+            bash: /bin/bash
+            mutants: true
+          # Mutants are skipped here only for time: every process spawn costs ~10x
+          # what it does on the other two, and the mutant table proves the SUITE,
+          # which the other legs already run unchanged.
+          - os: windows-latest
+            bash: bash
+            mutants: false
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Interpreter
+        # A macOS leg that ran a Homebrew bash 5 would pass while testing nothing it
+        # exists for, so the version is asserted, not just printed.
+        run: |
+          version=$("${{ matrix.bash }}" -c 'echo "$BASH_VERSION"')
+          echo "bash $version"
+          if [ "${{ matrix.os }}" = macos-latest ]; then
+            case "$version" in
+              3.2.*) ;;
+              *) echo "::error::expected macOS /bin/bash 3.2, got $version"; exit 1 ;;
+            esac
+          fi
+      - name: Cases
+        run: '"${{ matrix.bash }}" scripts/test-clang-format-hook.sh'
+      - name: Mutants (each case can fail for its reason)
+        if: ${{ matrix.mutants }}
+        run: '"${{ matrix.bash }}" scripts/test-clang-format-hook.sh --mutants'
