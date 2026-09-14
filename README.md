@@ -178,9 +178,8 @@ A project states which build it is judged by in a `.clang-format-version` file a
 edited file (the nearest one applies):
 
 ```
-# The clang-format build CI checks formatting with.
-version: Ubuntu clang-format version 22.1.8 (++20260714014902+ca7933e47d3a-1~exp1~20260714135019.80)
-binary: clang-format-22
+# The clang-format build CI checks formatting with: PyPI's clang-format==22.1.8.
+version: clang-format version 22.1.8
 ```
 
 | Key | Meaning |
@@ -189,8 +188,16 @@ binary: clang-format-22
 | `binary` | A command name to try before plain `clang-format`, such as `clang-format-22`. Repeatable, tried in order. Must be `clang-format` or `clang-format-*` and resolved on `PATH` — never a path, so a committed file cannot make the hook execute something the repository ships, or something that is not a formatter. |
 
 Blank lines and `#` comments are ignored; anything else is an error. Take the `version` line from
-the formatter your CI actually runs — its log, or `clang-format-22 --version` in the same image —
-not from the one on your machine.
+the formatter your CI actually runs — its log, or `clang-format --version` in the same image — not
+from the one on your machine.
+
+**Pin an exact release in CI, not a distribution's rolling package.** apt.llvm.org's
+`clang-format-22`, for instance, is a snapshot that changes build under the same version number:
+declare it and the declaration goes stale the next time the mirror moves, while every developer has
+to chase the mirror to format at all. LLVM publishes each release on PyPI
+(`pip install clang-format==22.1.8`), one build with one banner on Linux, macOS and Windows — so CI
+and every developer machine can run the declared build natively. Such a build needs no `binary:`
+line.
 
 What the hook then does:
 
