@@ -17,10 +17,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - name: Install PyYAML
-        run: python -m pip install --quiet pyyaml
+      - name: Install PyYAML and markdown
+        run: python -m pip install --quiet pyyaml markdown
       - name: Validate marketplace, plugins, skills and hooks
         run: python3 scripts/validate.py
+      - name: Status board self-test
+        run: python3 plugins/contour-workflows/skills/status-board/selftest.py
 
   shell:
     name: Shell scripts
