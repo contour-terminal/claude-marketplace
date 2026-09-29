@@ -84,9 +84,12 @@ a few small tickets deep — see the `/sprint-dev` and `/sprint-batch` rows belo
 | `/sprint-dev <n>` | What a developer runs: `/work-issue` plus the constraints that only exist in a parallel run — stay in lane, push early, scope every gate explicitly, report to the manager and never to the user. |
 | `/sprint-batch [n]` | The same developer role over several tickets at once: one lane's next `n` tickets onto one branch, one PR, one CI cycle, one merge. Each ticket keeps its own commits and closing trailer so a bad one can be excised rather than holding the rest. The count is a ceiling. |
 | `/sprint-performance` | How the sprint is trending rather than where it stands — throughput per day and per week, a burnup that shows scope changes instead of hiding them, cycle time split into queue/build/review with medians and p90, aging work in progress, integrity checks, and a forecast range rather than a date. Reconstructs the history the board does not store, from issue, commit and PR timestamps, and names what it could not determine. Renders as terminal tables and as a charted HTML report. Measures components, never people. |
+| `/status-board [init\|update\|publish]` | A local, never-committed `STATUS.md` kept current at every state change — stamped from `date`, its body rewritten at each milestone rather than just its header — and republished after every edit as a phone-friendly page at one private artifact URL, so the owner has one link that is always current. Progress bars come from any table with an `N/M` column and a state column. For a run with no project board, or alongside one. |
 
 `/sprint-status` answers "where are we"; `/sprint-performance` answers "are we speeding up or slowing
-down, and which stage is slow". The first is a snapshot, the second a derivative.
+down, and which stage is slow". The first is a snapshot, the second a derivative. `/status-board`
+keeps the answer to "where are we" in a local file and one private page, for a run that has no
+board — or for an owner who wants one link to check from a phone.
 
 `/sprint-dev` and `/sprint-batch` are the same job at different granularity. Reach for the batch when
 CI waits and cross-lane rebases cost more than the tickets do: the compounding cost in a parallel run
@@ -345,6 +348,15 @@ bash scripts/test-clang-format-hook.sh --mutants
 
 A new case for a new property gets a mutant row too; a suite that has only been seen passing has
 not been seen to test anything.
+
+A change to the status-board renderer runs its self-test, which renders the fixtures next to it and
+checks hand-computed values, the page's theme contract, and where the page lands in a throwaway
+repository and its linked worktree. CI runs it with the manifest checks; locally it needs
+`pip install markdown`:
+
+```
+python3 plugins/contour-workflows/skills/status-board/selftest.py
+```
 
 Then install from a local path to try changes before pushing:
 
