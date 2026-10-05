@@ -2,7 +2,7 @@
 
 Local-only tracker: excluded via `.git/info/exclude`, never committed.
 
-**Last updated:** 2026-03-21 17:45
+**Last updated:** 2026-03-21 17:45:12
 
 ## Current plan: drop the legacy config format
 

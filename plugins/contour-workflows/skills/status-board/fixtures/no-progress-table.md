@@ -2,7 +2,7 @@
 
 Local-only tracker: excluded via `.git/info/exclude`, never committed.
 
-**Last updated:** 2026-03-14 09:30
+**Last updated:** 2026-03-14 09:30:08
 
 ## Current plan: triage the crash reports from the 2.3 release
 

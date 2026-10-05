@@ -128,7 +128,7 @@ ok("example: headline", "10 of 19 tasks done · 1 of 4 lanes landed", b.headline
 ok("example: the h1 is the headline", b.headline, text_of("h1", b.page).replace("\u00a0", " "))
 has("example: a wrapped headline keeps the dot on the first line", "done&nbsp;· 1 of", b.page)
 has("example: a list right under a paragraph line is still a list",
-    "<li>2026-03-10: the buffered reader", b.page)
+    "<li>2026-03-10 11:42:07: the buffered reader", b.page)
 ok("example: title from the H1", "acme — status", text_of("title", b.page))
 ok("example: rungs done", 10, p.count("rung done"))
 ok("example: one current rung per running lane", 2, p.count("rung running"))
@@ -138,8 +138,8 @@ ok("example: chips", (1, 2, 1), (p.count("chip done"), p.count("chip running"), 
 has("example: the caption names running lanes by their short name",
     "In progress: <strong>Cache, CLI</strong>", b.page)
 has("example: no Blocked caption without a blocked lane", "Blocked:", b.page, present=False)
-has("example: the stamp is in the masthead", "<b>Last updated</b>2026-03-14 16:05", b.page)
-has("example: generation time carries its offset", "Page generated 2026-03-21 18:00 (UTC+01:00)", b.page)
+has("example: the stamp is in the masthead", "<b>Last updated</b>2026-03-14 16:05:41", b.page)
+has("example: generation time carries its offset", "Page generated 2026-03-21 18:00:00 (UTC+01:00)", b.page)
 has("example: the preamble is dropped", "Local-only tracker", b.page, present=False)
 has("example: the stamp line is not repeated in the body", "Last updated:", b.page, present=False)
 has("example: Now lead-in", '<strong class="lead now">Now</strong>', b.page)
@@ -200,7 +200,12 @@ ok("no stamp: warned", ["no **Last updated:** line; the page says so"], b.warnin
 has("no stamp: the page says so", '<span class="missing">not stated in STATUS.md</span>', b.page)
 
 b = sp.render("# x\n\n**Last updated:** yesterday afternoon\n", now=NOW)
-ok("a guessed stamp is warned", ["Last updated 'yesterday afternoon' is not YYYY-MM-DD HH:MM"], b.warnings)
+ok("a guessed stamp is warned", ["Last updated 'yesterday afternoon' is not YYYY-MM-DD HH:MM:SS"],
+   b.warnings)
+
+b = sp.render("# x\n\n**Last updated:** 2026-03-21 17:00\n", now=NOW)
+ok("a stamp without seconds is warned", ["Last updated '2026-03-21 17:00' is not YYYY-MM-DD HH:MM:SS"],
+   b.warnings)
 
 b = sp.render("# x\n\n" + TABLE + "| A | 5/4 | running |\n", now=NOW)
 has("more done than total is warned", "A: 5/4 counts more tasks done than there are", " ".join(b.warnings))
@@ -222,7 +227,18 @@ has("more than twelve rungs drop their numbers", 'class="ladder dense"', b.page)
 b = sp.render("# x\n\n" + TABLE + "| A | 1/1 | done |\n", title="Custom board", now=NOW)
 ok("--title overrides the H1", "Custom board", text_of("title", b.page))
 
-STAMPED = "# x\n\n**Last updated:** 2026-03-21 17:00\n\n"
+STAMPED = "# x\n\n**Last updated:** 2026-03-21 17:00:42\n\n"
+
+# Every time on the board carries its seconds. A time that stops at the minute is warned wherever
+# it is written, and so is a dated entry with no time. A full time, a date inside a sentence and a
+# code fence are not.
+b = sp.render(STAMPED + "- 2026-03-20: a decision\n- **2026-03-20** *(mine)*: another\n"
+              "- 2026-03-20 14:05: a third\n- 2026-03-20 14:05:09: a fourth\n"
+              "Landed on 2026-03-19, as planned.\n```\n2026-03-18 10:00\n```\n", now=NOW)
+ok("a time without seconds, or a dated entry without a time, is warned",
+   ["line 5: a dated entry without its time; write YYYY-MM-DD HH:MM:SS",
+    "line 6: a dated entry without its time; write YYYY-MM-DD HH:MM:SS",
+    "line 7: '2026-03-20 14:05' has no seconds; write YYYY-MM-DD HH:MM:SS"], b.warnings)
 
 # Two N/M columns. The header decides which one counts, not the position: a Tests column ahead
 # of the task count would otherwise draw a lane a third done as finished.

@@ -82,9 +82,9 @@ covers it — fine, but leave it alone and do not add a second one.
 ### Step 3 — Create it
 
 If `STATUS.md` already exists, it is the board: go to `update` rather than overwrite it.
-Otherwise write it from the template below. Take the stamp from `date '+%Y-%m-%d %H:%M'`, and fill
-the plan, the decisions already made and one row per lane or phase from what the session actually
-knows. Leave a section's placeholder out rather than invent content for it.
+Otherwise write it from the template below. Take the stamp from `date '+%Y-%m-%d %H:%M:%S'`, and
+fill the plan, the decisions already made and one row per lane or phase from what the session
+actually knows. Leave a section's placeholder out rather than invent content for it.
 
 ### Step 4 — Publish
 
@@ -95,16 +95,16 @@ Mode `publish`. The first publish creates the artifact and remembers its URL.
 ```markdown
 # <project> — status
 
-Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are local, from `date`.
+Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are local, from `date`, to the second.
 
-**Last updated:** YYYY-MM-DD HH:MM
+**Last updated:** YYYY-MM-DD HH:MM:SS
 
 ## Current plan: <the goal, in one line>
 
 <Two or three sentences: what done looks like, and where the work lands — one PR, several, a release or none.>
 
 **Decisions:**
-- <YYYY-MM-DD: a decision the owner made that shapes the plan.>
+- <YYYY-MM-DD HH:MM:SS: a decision the owner made that shapes the plan.>
 
 | Lane | Tasks done | State | Where it is |
 |---|---|---|---|
@@ -140,6 +140,11 @@ What the page does with it:
 - `**Now:**`, `**Next:**` and `**Blocked:**` at the start of a line become labelled lines.
 - Nest list items with **four** spaces. The page reads two as a sibling of the item above, where
   GitHub would nest it, and the renderer warns where it sees that.
+- **Every date and time is written in full, `YYYY-MM-DD HH:MM:SS`**: the stamp, each dated
+  decision or ruling, and any time the body mentions. The renderer warns about a time that stops at
+  the minute and about a list item that opens with a date and no time, and the page's own
+  *Page generated* line carries seconds too. Two entries made in the same minute keep their order,
+  and a reader can match an entry to a log line or a commit.
 
 The state column starts with one of these; anything after it stays as written
 (`blocked — on the schema decision`):
@@ -172,9 +177,11 @@ whole batch, which is exactly when the owner looked.
 
 ### What, at every edit
 
-1. **The stamp.** Run `date '+%Y-%m-%d %H:%M'` and write what it prints. Never estimate it, never
-   carry a time forward from earlier in the session. A stamp is a claim that the body was true at
-   that minute, and a guessed one is a claim nobody checked.
+1. **The stamp.** Run `date '+%Y-%m-%d %H:%M:%S'` and write what it prints. Never estimate it,
+   never carry a time forward from earlier in the session. A stamp is a claim that the body was true
+   at that second, and a guessed one is a claim nobody checked. A dated entry added in the same edit
+   takes its time from the same `date` call, or from the event's own record (a commit, a message)
+   when it happened earlier — never from memory.
 2. **The row.** Its `N/M`, its state, and *where it is* — the commit, the PR, what is in review.
 3. **`Now` and `Next`.**
 4. **Any count that moved** — a baseline, a test total — wherever the file states it.
@@ -219,9 +226,10 @@ repository, writes the page to `.git/info/status-board.html`, and prints one lin
 the headline it drew. `--source`, `--output` and `--title` override the defaults; `--standalone`
 writes a complete HTML document instead of the fragment the `Artifact` tool wraps itself.
 
-**A warning is a defect in `STATUS.md`, not in the page**: a missing or malformed stamp, a count
-above its total, a state word the page does not know, a count column it had to guess, a list
-nested at fewer than four spaces. Fix the file and render again; do not publish over a warning.
+**A warning is a defect in `STATUS.md`, not in the page**: a missing or malformed stamp, a time
+without its seconds, a dated entry without its time, a count above its total, a state word the page
+does not know, a count column it had to guess, a list nested at fewer than four spaces. Fix the
+file and render again; do not publish over a warning.
 
 The renderer needs the `markdown` package and says so in one line — `pip install markdown` — when it
 is missing. Installing it is the owner's call: say what is missing rather than install it unasked.
@@ -274,7 +282,8 @@ that `STATUS.md` itself is complete.
 - **NEVER commit or push `STATUS.md`, or exclude it through `.gitignore`.** `.git/info/exclude` only.
 - **NEVER let a tracked file, a commit message, a PR or an issue refer to `STATUS.md` or carry the
   page's URL.** Nobody else has either; a pointer to them is a dead link in public.
-- **NEVER write a timestamp that did not come from `date`.**
+- **NEVER write a timestamp that did not come from `date` or the event's own record, and never one
+  without its seconds.**
 - **NEVER move the stamp without the read-back.** The stamp vouches for the body.
 - **NEVER save updates for the end of a batch.** Same turn as the change.
 - **NEVER create a second artifact unless a read reports the remembered one gone.** A read that
