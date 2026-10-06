@@ -67,7 +67,11 @@ LIST_ITEM = re.compile(r"^ {0,3}([-*+]|\d+[.)])\s")
 LIST_ANY = re.compile(r"^([ \t]*)([-*+]|\d+[.)])\s")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 UPDATED = re.compile(r"^\*\*Last updated:\*\*\s*(.*?)\s*$", re.I)
-STAMP = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?!\d)")
+STAMP = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?![\d:])")
+# A date and time that stops at the minute, anywhere in the body.
+MINUTE_ONLY = re.compile(r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?!\d|:\d)")
+# A list item that opens with a bare date, as a dated decision does, and no time after it.
+DATED_ITEM = re.compile(r"^\s*([-*+]|\d+[.)])\s+[*_]{0,2}\d{4}-\d{2}-\d{2}(?!\d|[ T]\d{2}:\d{2})")
 PLAN = re.compile(r"^##\s+Current plan:\s*(.+?)\s*$", re.I | re.M)
 LEADS = (("Now", "now"), ("Next", "next"), ("Blocked", "blocked"))
 
@@ -502,12 +506,30 @@ def short(name: str) -> str:
     return name.split(": ")[0]
 
 
+def timestamp_warnings(lines: list[str]) -> list[str]:
+    """Where a date and time is written without its seconds, or a dated entry without its time.
+
+    Every time on the board is a full YYYY-MM-DD HH:MM:SS, so two entries made in the same
+    minute keep their order and a reader can match an entry to a log line or a commit. The
+    stamp line has its own warning and is skipped here; so are code fences.
+    """
+    warnings: list[str] = []
+    for n, (line, inside) in enumerate(zip(lines, fenced(lines)), 1):
+        if inside or UPDATED.match(line):
+            continue
+        for m in MINUTE_ONLY.finditer(line):
+            warnings.append(f"line {n}: '{m.group(0)}' has no seconds; write YYYY-MM-DD HH:MM:SS")
+        if DATED_ITEM.match(line):
+            warnings.append(f"line {n}: a dated entry without its time; write YYYY-MM-DD HH:MM:SS")
+    return warnings
+
+
 def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md",
            now: datetime.datetime | None = None, standalone: bool = False) -> Board:
     # Line numbers in warnings are the file's own, so the nesting check reads it before the
     # blank lines that let a list or a table follow a paragraph line are put in.
     original = text.split("\n")
-    warnings = nested_list_warnings(original)
+    warnings = nested_list_warnings(original) + timestamp_warnings(original)
     lines = separate_blocks(original)
 
     # The progress tables: collect their rows, and turn each state cell into a chip.
@@ -555,7 +577,7 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
     if stamp_line is None:
         warnings.append("no **Last updated:** line; the page says so")
     elif not STAMP.match(updated):
-        warnings.append(f"Last updated '{updated}' is not YYYY-MM-DD HH:MM")
+        warnings.append(f"Last updated '{updated}' is not YYYY-MM-DD HH:MM:SS")
 
     if rows:
         done = sum(r.done for r in rows)
@@ -590,7 +612,7 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
 
     now = now or datetime.datetime.now().astimezone()
     offset = now.strftime("%z") or "+0000"
-    generated = f"{now.strftime('%Y-%m-%d %H:%M')} (UTC{offset[:3]}:{offset[3:]})"
+    generated = f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset[:3]}:{offset[3:]})"
     updated_html = (inline(updated) if updated
                     else f'<span class="missing">not stated in {html.escape(source_name)}</span>')
 

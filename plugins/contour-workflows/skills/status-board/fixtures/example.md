@@ -1,8 +1,8 @@
 # acme — status
 
-Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are local, from `date`.
+Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are local, from `date`, to the second.
 
-**Last updated:** 2026-03-14 16:05
+**Last updated:** 2026-03-14 16:05:41
 
 ## Current plan: streaming input for the parser, with the cache and CLI to match
 
@@ -10,8 +10,8 @@ Done means one pull request to `main` with all four lanes landed on the integrat
 `streaming`, CI green, and the migration guide written. No release in this plan.
 
 **Decisions:**
-- 2026-03-10: the buffered reader stays for one release, deprecated, then goes.
-- 2026-03-12: the cache keys on content hashes, not paths.
+- 2026-03-10 11:42:07: the buffered reader stays for one release, deprecated, then goes.
+- 2026-03-12 09:15:30: the cache keys on content hashes, not paths.
 
 | Lane | Tasks done | State | Where it is |
 |---|---|---|---|
