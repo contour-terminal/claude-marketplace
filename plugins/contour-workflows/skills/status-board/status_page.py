@@ -16,7 +16,7 @@ worktrees run the skill in parallel without writing over each other.
 --output      Defaults to <the working tree's git dir>/status-board.html: inside .git, so it can
               never be committed, and private to the working tree (.git/worktrees/<name>/ for a
               linked one). Outside a git repository it falls back to the system temp directory.
---title       Defaults to the text of STATUS.md's H1.
+--title       Defaults to the goal in STATUS.md's "## Current plan:" heading, else its H1.
 --standalone  Wraps the page in a complete HTML document, for opening from disk. Without it the
               output is the fragment the Artifact tool wraps in its own document skeleton.
 --url         Prints the working tree's remembered page URL, or a line saying there is none yet.
@@ -142,6 +142,8 @@ header.masthead { display: grid; gap: 14px; }
   text-transform: uppercase; color: var(--accent); margin: 0;
 }
 h1 { font-size: 1.75rem; line-height: 1.2; margin: 0; font-weight: 700; text-wrap: balance; }
+.lede { margin: -4px 0 0; font-size: 1.02rem; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
+.headline { margin: 0; font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; text-wrap: balance; }
 .updated {
   background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
   padding: 12px 14px; margin: 0; font-size: 0.95rem;
@@ -249,6 +251,8 @@ class Board:
     rows: list[Row]
     page: str
     warnings: list[str] = field(default_factory=list)
+    goal: str = ""  # the current plan's goal, the page's title: what the work in this tree is about
+    summary: str = ""  # the paragraph under it, shown beside the title
 
 
 # --- Markdown helpers ------------------------------------------------------------------------
@@ -380,6 +384,33 @@ def separate_blocks(lines: list[str]) -> list[str]:
             out.append("")
         out.append(line)
     return out
+
+
+# A line that labels what follows it rather than saying something: **Decisions:**, **Now:**.
+LABEL = re.compile(r"^\*\*[^*]+:\*\*")
+
+
+def plan_section(lines: list[str]) -> tuple[int | None, list[int]]:
+    """The line of the Current plan heading, and the lines of the paragraph that opens its section.
+
+    That paragraph is the plan's summary only when it is prose: a list, a table, a fence, a
+    heading or a labelled line such as **Decisions:** in its place means the summary is missing.
+    """
+    inside = fenced(lines)
+    heading = next((i for i, line in enumerate(lines) if not inside[i] and PLAN.match(line)), None)
+    if heading is None:
+        return None, []
+    i = heading + 1
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    summary: list[int] = []
+    while (i < len(lines) and lines[i].strip() and not inside[i]
+           and not (HEADING.match(lines[i]) or LIST_ITEM.match(lines[i]) or "|" in lines[i]
+                    or FENCE.match(lines[i]) or lines[i].startswith((">", " ", "\t"))
+                    or (not summary and LABEL.match(lines[i])))):
+        summary.append(i)
+        i += 1
+    return heading, summary
 
 
 def nested_list_warnings(lines: list[str]) -> list[str]:
@@ -583,13 +614,25 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
     # The masthead: title, the Last-updated stamp, and the headline.
     h1 = next((i for i, line in enumerate(lines) if re.match(r"#\s", line)), None)
     stamp_line = next((i for i, line in enumerate(lines) if UPDATED.match(line)), None)
-    if title is None:
-        title = (plain(HEADING.match(lines[h1]).group(2)) if h1 is not None else "") or "Status"
+    eyebrow = (plain(HEADING.match(lines[h1]).group(2)) if h1 is not None else "") or "Status"
     updated = UPDATED.match(lines[stamp_line]).group(1) if stamp_line is not None else ""
     if stamp_line is None:
         warnings.append("no **Last updated:** line; the page says so")
     elif not STAMP.match(updated):
         warnings.append(f"Last updated '{updated}' is not YYYY-MM-DD HH:MM:SS")
+
+    # The page's title is what the work in this tree is about: the current plan's goal, with the
+    # paragraph under it beside it. The H1 names the project and the tree, above both.
+    plan_line, summary_lines = plan_section(lines)
+    goal = PLAN.match(lines[plan_line]).group(1) if plan_line is not None else ""
+    goal = goal[:1].upper() + goal[1:] if goal[:1].islower() else goal
+    summary = " ".join(lines[i].strip() for i in summary_lines)
+    if plan_line is None:
+        warnings.append("no '## Current plan: <goal>' heading; the page has no title saying what "
+                        "the work is about")
+    elif not summary:
+        warnings.append("no summary paragraph right under '## Current plan:'; the title stands "
+                        "alone with nothing to say more about the work")
 
     if rows:
         done = sum(r.done for r in rows)
@@ -601,8 +644,7 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
         headline = (f"{done} of {total} {count_noun} done · {len(finished)} of {len(rows)} "
                     f"{row_noun} {'landed' if landed else 'done'}")
     else:
-        plan = PLAN.search(text)
-        headline = plain(plan.group(1)) if plan else title
+        headline = plain(goal) or eyebrow
 
     # The body: everything but the H1, the preamble under it and the stamp, which the masthead
     # carries. The preamble is dropped only when no heading sits between it and the stamp.
@@ -614,6 +656,15 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
         if h1 is not None and h1 < stamp_line and not any(
                 HEADING.match(line) for line in lines[h1 + 1:stamp_line]):
             drop.update(range(h1 + 1, stamp_line))
+    if plan_line is not None:
+        drop.update(summary_lines)
+        rest = next((line for i, line in enumerate(lines)
+                     if i > plan_line and i not in drop and line.strip()), "")
+        heading = HEADING.match(rest)
+        if not rest or (heading and len(heading.group(1)) <= 2):
+            drop.add(plan_line)  # nothing left in the section but what the masthead now shows
+        else:
+            lines[plan_line] = "## Plan"
     body_md = "\n".join(line for i, line in enumerate(lines) if i not in drop)
 
     body = markdown.markdown(body_md, extensions=MARKDOWN_EXTENSIONS)
@@ -628,6 +679,9 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
     updated_html = (inline(updated) if updated
                     else f'<span class="missing">not stated in {html.escape(source_name)}</span>')
 
+    # A line that wraps at the dot keeps it at the end of the first line, not the start of the next.
+    headline_html = html.escape(headline).replace(" · ", "&nbsp;· ")
+
     if rows:
         running = [short(r.name) for r in rows if r.state == "running"]
         blocked = [short(r.name) for r in rows if r.state == "blocked"]
@@ -640,8 +694,10 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
             legend.append('<li><span class="swatch blocked"></span>blocked</li>')
         legend.append('<li><span class="swatch todo"></span>to do</li>')
         legend_html = "".join(legend)
+        # The progress headline sits with the bars it sums, unless no goal took the title from it.
+        headline_p = f'      <p class="headline">{headline_html}</p>\n' if goal else ""
         progress = f"""    <section class="ladder-block" aria-label="Progress">
-      <p class="ladder-caption">{caption}</p>
+{headline_p}      <p class="ladder-caption">{caption}</p>
 {ladder(rows)}
       <ul class="ladder-legend">
         {legend_html}
@@ -651,10 +707,17 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
         progress = ('    <p class="note">No progress table: bars are drawn from a table with an '
                     'N/M column and a State column.</p>')
 
-    # A line that wraps at the dot keeps it at the end of the first line, not the start of the next.
-    headline_html = html.escape(headline).replace(" · ", "&nbsp;· ")
-    head = f"""<title>{html.escape(title)}</title>
-<meta name="description" content="{html.escape(title)}: progress, what is running now, and what is next.">
+    if goal:
+        title_html = f"    <h1>{inline(goal)}</h1>"
+        if summary:
+            title_html += f'\n    <p class="lede">{inline(summary)}</p>'
+    else:
+        title_html = f"    <h1>{headline_html}</h1>"
+    page_title = title or plain(goal) or eyebrow
+    description = (plain(summary) if summary
+                   else f"{page_title}: progress, what is running now, and what is next.")
+    head = f"""<title>{html.escape(page_title)}</title>
+<meta name="description" content="{html.escape(description)}">
 {FONT_LINKS}
 <style>
 {THEME}
@@ -662,8 +725,8 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
 
     content = f"""<div class="page">
   <header class="masthead">
-    <p class="eyebrow">{html.escape(title)}</p>
-    <h1>{headline_html}</h1>
+    <p class="eyebrow">{html.escape(eyebrow)}</p>
+{title_html}
     <p class="updated"><b>Last updated</b>{updated_html}<br><small>Page generated {generated}</small></p>
 {progress}
   </header>
@@ -690,7 +753,7 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
 """
     else:
         page = f"{head}\n\n{content}"
-    return Board(title, headline, rows, page, warnings)
+    return Board(page_title, headline, rows, page, warnings, goal=goal, summary=summary)
 
 
 # --- Where things live -----------------------------------------------------------------------
@@ -779,7 +842,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Render STATUS.md into a phone-friendly status page.")
     parser.add_argument("--source", help="the status file (default: STATUS.md at the working tree's root)")
     parser.add_argument("--output", help="where to write the page (default: <git dir>/status-board.html)")
-    parser.add_argument("--title", help="the page title (default: the text of the file's H1)")
+    parser.add_argument("--title", help="the page title (default: the current plan's goal, else the H1)")
     parser.add_argument("--standalone", action="store_true",
                         help="write a complete HTML document for opening from disk")
     parser.add_argument("--url", action="store_true", help="print the working tree's remembered page URL")
