@@ -6,6 +6,9 @@ Local-only tracker: excluded via `.git/info/exclude`, never committed.
 
 ## Current plan: drop the legacy config format
 
+The reader accepts only the new format, a converter moves old files across, and the release
+notes say how. Done means all four lanes merged and the converter tested on the sample configs.
+
 | Lane | Tasks done | State | Where it is |
 |---|---|---|---|
 | Reader: new format only | 4/4 | merged | #212 |

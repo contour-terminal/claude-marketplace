@@ -125,11 +125,24 @@ def check_page(name: str, board: sp.Board) -> Page:
 b = render("example.md")
 p = check_page("example", b)
 ok("example: headline", "10 of 19 tasks done · 1 of 4 lanes landed", b.headline)
-ok("example: the h1 is the headline", b.headline, text_of("h1", b.page).replace("\u00a0", " "))
-has("example: a wrapped headline keeps the dot on the first line", "done&nbsp;· 1 of", b.page)
+ok("example: the h1 is the plan's goal, capitalised",
+   "Streaming input for the parser, with the cache and CLI to match", text_of("h1", b.page))
+has("example: the summary paragraph sits beside it",
+    '<p class="lede">Done means one pull request to <code>main</code> with all four lanes landed on '
+    'the integration branch <code>streaming</code>, CI green, and the migration guide written. '
+    'No release in this plan.</p>', b.page)
+ok("example: the summary leaves the body for the masthead", 1,
+   b.page.count("<code>main</code> with all four lanes"))
+has("example: the H1 is the eyebrow", '<p class="eyebrow">acme — status</p>', b.page)
+has("example: the headline sits with the bars, its dot on the first line of a wrap",
+    '<p class="headline">10 of 19 tasks done&nbsp;· 1 of 4 lanes landed</p>', b.page)
+has("example: the plan's section keeps a heading for what is left of it", "<h2>Plan</h2>", b.page)
+has("example: the summary is the page's description",
+    '<meta name="description" content="Done means one pull request to main with', b.page)
 has("example: a list right under a paragraph line is still a list",
     "<li>2026-03-10 11:42:07: the buffered reader", b.page)
-ok("example: title from the H1", "acme — status", text_of("title", b.page))
+ok("example: the page's title is the goal",
+   "Streaming input for the parser, with the cache and CLI to match", text_of("title", b.page))
 ok("example: rungs done", 10, p.count("rung done"))
 ok("example: one current rung per running lane", 2, p.count("rung running"))
 ok("example: rungs to do", 7, p.count("rung todo"))
@@ -153,7 +166,8 @@ b = render("no-progress-table.md")
 p = check_page("no-progress-table", b)
 ok("no-progress-table: no rows", 0, len(b.rows))
 ok("no-progress-table: headline falls back to the plan",
-   "triage the crash reports from the 2.3 release", b.headline)
+   "Triage the crash reports from the 2.3 release", b.headline)
+ok("no-progress-table: no progress headline under the title", 0, p.count("headline"))
 ok("no-progress-table: the absence is said", 1, p.count("note"))
 ok("no-progress-table: no ladder", 0, p.count("ladder-block"))
 ok("no-progress-table: no chips", 0, sum(c.startswith("chip") for c in p.classes))
@@ -172,8 +186,8 @@ ok("several-tables: a group label per table",
    ["Phase 1: configure", "Phase 2: test and package"],
    re.findall(r'<p class="ladder-group">(.*?)</p>', b.page))
 has("several-tables: the fenced table stays code", "| 9/9 | done | inside a code fence |", b.page)
-has("several-tables: without a preamble the plan heading survives",
-    "<h2>Current plan: move the build to presets</h2>", b.page)
+has("several-tables: without a preamble the plan's section survives", "<h2>Plan</h2>", b.page)
+ok("several-tables: the goal is the title", "Move the build to presets", text_of("h1", b.page))
 
 # blocked.md: 4/4 merged, 2/5 blocked, 1/3 running, 0/1 on hold.
 b = render("blocked.md")
@@ -194,47 +208,81 @@ has("blocked: Blocked lead-in", '<strong class="lead blocked">Blocked</strong>',
 # ============================================================================================
 
 TABLE = "| Lane | Tasks done | State |\n|---|---|---|\n"
+# Appended to a board that tests something else, so a missing plan does not warn; at the end, so
+# the line numbers in the warnings it does test stay those of the text above it.
+PLANNED = "\n## Current plan: x\n\nWhat x is.\n"
+STAMPED = "# x\n\n**Last updated:** 2026-03-21 17:00:42\n\n"
 
-b = sp.render("# x\n\n" + TABLE + "| A | 1/2 | running |\n", now=NOW)
+b = sp.render("# x\n\n" + TABLE + "| A | 1/2 | running |\n" + PLANNED, now=NOW)
 ok("no stamp: warned", ["no **Last updated:** line; the page says so"], b.warnings)
 has("no stamp: the page says so", '<span class="missing">not stated in STATUS.md</span>', b.page)
 
-b = sp.render("# x\n\n**Last updated:** yesterday afternoon\n", now=NOW)
+b = sp.render("# x\n\n**Last updated:** yesterday afternoon\n" + PLANNED, now=NOW)
 ok("a guessed stamp is warned", ["Last updated 'yesterday afternoon' is not YYYY-MM-DD HH:MM:SS"],
    b.warnings)
 
-b = sp.render("# x\n\n**Last updated:** 2026-03-21 17:00\n", now=NOW)
+b = sp.render("# x\n\n**Last updated:** 2026-03-21 17:00\n" + PLANNED, now=NOW)
 ok("a stamp without seconds is warned", ["Last updated '2026-03-21 17:00' is not YYYY-MM-DD HH:MM:SS"],
    b.warnings)
 
-b = sp.render("# x\n\n" + TABLE + "| A | 5/4 | running |\n", now=NOW)
+b = sp.render("# x\n\n" + TABLE + "| A | 5/4 | running |\n" + PLANNED, now=NOW)
 has("more done than total is warned", "A: 5/4 counts more tasks done than there are", " ".join(b.warnings))
 ok("... and reported as written, not corrected", "5 of 4 tasks done · 0 of 1 lanes done", b.headline)
 
-b = sp.render("# x\n\n" + TABLE + "| A | 1/2 | running |\n| B | 0/2 | in flight |\n", now=NOW)
+b = sp.render("# x\n\n" + TABLE + "| A | 1/2 | running |\n| B | 0/2 | in flight |\n" + PLANNED,
+              now=NOW)
 has("an unknown state is warned", "B: state 'in flight' is not one this page knows",
     " ".join(b.warnings))
 ok("... and the row still counts", "1 of 4 tasks done · 0 of 2 lanes done", b.headline)
 
-b = sp.render("# x\n\n" + TABLE + "| Soak tests | 30/50 | running |\n", now=NOW)
+b = sp.render("# x\n\n" + TABLE + "| Soak tests | 30/50 | running |\n" + PLANNED, now=NOW)
 has("a long row is a bar, not fifty rungs", '<span class="bar-fill" style="width: 60%;">', b.page)
 ok("... with no rungs", 0, Page(b.page).count("rung todo"))
 
-b = sp.render("# x\n\n" + TABLE + "| Build & test | 0/13 | queued |\n", now=NOW)
+b = sp.render("# x\n\n" + TABLE + "| Build & test | 0/13 | queued |\n" + PLANNED, now=NOW)
 has("lane names are escaped in the ladder", "Build &amp; test <span", b.page)
 has("more than twelve rungs drop their numbers", 'class="ladder dense"', b.page)
 
-b = sp.render("# x\n\n" + TABLE + "| A | 1/1 | done |\n", title="Custom board", now=NOW)
-ok("--title overrides the H1", "Custom board", text_of("title", b.page))
+b = sp.render("# x\n\n" + TABLE + "| A | 1/1 | done |\n" + PLANNED, title="Custom board", now=NOW)
+ok("--title overrides the goal", "Custom board", text_of("title", b.page))
+ok("... but not the h1", "X", text_of("h1", b.page))
 
-STAMPED = "# x\n\n**Last updated:** 2026-03-21 17:00:42\n\n"
+# The title says what the work is about. Without a plan the page falls back to the progress
+# headline, and says so; a plan with a list or a labelled line where its summary belongs has none.
+b = sp.render(STAMPED + TABLE + "| A | 1/2 | running |\n",
+              now=NOW)
+ok("no plan: warned",
+   ["no '## Current plan: <goal>' heading; the page has no title saying what the work is about"],
+   b.warnings)
+ok("... the h1 is the progress headline", "1 of 2 tasks done · 0 of 1 lanes done",
+   text_of("h1", b.page).replace("\u00a0", " "))
+ok("... shown once", 0, Page(b.page).count("headline"))
+ok("... and the page's title is the H1", "x", text_of("title", b.page))
+NO_SUMMARY = ["no summary paragraph right under '## Current plan:'; the title stands alone with "
+              "nothing to say more about the work"]
+for after in ("**Decisions:**\n- 2026-03-20 10:00:00: one", "- a list", TABLE + "| A | 1/2 | running |",
+              "### Phase 1"):
+    b = sp.render(STAMPED + "## Current plan: y\n\n" + after + "\n", now=NOW)
+    ok(f"a plan opening with {after.splitlines()[0]!r} has no summary", NO_SUMMARY, b.warnings)
+    has("... and no lede", 'class="lede"', b.page, present=False)
+b = sp.render(STAMPED + "## Current plan: y\n\nWhat y is,\nover two lines.\n\n## Key rulings\n\n- one\n",
+              now=NOW)
+has("a summary over several lines is one lede", '<p class="lede">What y is, over two lines.</p>', b.page)
+has("a plan section with nothing but its summary leaves no empty heading", "<h2>Plan</h2>", b.page,
+    present=False)
+has("... and the next section stays", "<h2>Key rulings</h2>", b.page)
+b = sp.render(STAMPED + "## Current plan: `watch` mode\n\nWhat it is.\n", now=NOW)
+has("a goal keeps its inline code", "<h1><code>watch</code> mode</h1>", b.page)
+ok("... which the page's title drops", "watch mode", text_of("title", b.page))
+b = sp.render(STAMPED + "```\n## Current plan: fenced\n```\n" + PLANNED, now=NOW)
+ok("a plan heading in a code fence is not the plan", "X", text_of("h1", b.page))
 
 # Every time on the board carries its seconds. A time that stops at the minute is warned wherever
 # it is written, and so is a dated entry with no time. A full time, a date inside a sentence and a
 # code fence are not.
 b = sp.render(STAMPED + "- 2026-03-20: a decision\n- **2026-03-20** *(mine)*: another\n"
               "- 2026-03-20 14:05: a third\n- 2026-03-20 14:05:09: a fourth\n"
-              "Landed on 2026-03-19, as planned.\n```\n2026-03-18 10:00\n```\n", now=NOW)
+              "Landed on 2026-03-19, as planned.\n```\n2026-03-18 10:00\n```\n" + PLANNED, now=NOW)
 ok("a time without seconds, or a dated entry without a time, is warned",
    ["line 5: a dated entry without its time; write YYYY-MM-DD HH:MM:SS",
     "line 6: a dated entry without its time; write YYYY-MM-DD HH:MM:SS",
@@ -243,31 +291,33 @@ ok("a time without seconds, or a dated entry without a time, is warned",
 # Two N/M columns. The header decides which one counts, not the position: a Tests column ahead
 # of the task count would otherwise draw a lane a third done as finished.
 TWO = "| Lane | Tests | {} | State |\n|---|---|---|---|\n| A | 212/212 | 1/3 | running |\n"
-b = sp.render(STAMPED + TWO.format("Tasks done"), now=NOW)
+b = sp.render(STAMPED + TWO.format("Tasks done") + PLANNED, now=NOW)
 ok("two N/M columns: the one headed 'Tasks done' is counted", "1 of 3 tasks done · 0 of 1 lanes done",
    b.headline)
 ok("... with no warning", [], b.warnings)
-b = sp.render(STAMPED + TWO.format("Progress"), now=NOW)
+b = sp.render(STAMPED + TWO.format("Progress") + PLANNED, now=NOW)
 ok("two N/M columns, neither headed like it: the first is counted",
    "212 of 212 tasks done · 0 of 1 lanes done", b.headline)
 ok("... and the guess is warned",
    ["a table has several N/M columns and none headed like 'Tasks done'; counting 'Tests'"], b.warnings)
 
 # Lines 6 and 8 nest at two and three spaces; line 10 nests at four.
-b = sp.render(STAMPED + "- parent\n  - child\n1. step\n   - detail\n- next\n    - nested right\n", now=NOW)
+b = sp.render(STAMPED + "- parent\n  - child\n1. step\n   - detail\n- next\n    - nested right\n"
+              + PLANNED, now=NOW)
 ok("nesting at two or three spaces is warned, at four it is not",
    ["line 6: a list item indented 2 spaces under the one above does not nest on the page; indent it four",
     "line 8: a list item indented 3 spaces under the one above does not nest on the page; indent it four"],
    b.warnings)
 
-b = sp.render(STAMPED + "Progress:\n" + TABLE + "| A | 1/2 | running |\n", now=NOW)
+b = sp.render(STAMPED + "Progress:\n" + TABLE + "| A | 1/2 | running |\n" + PLANNED, now=NOW)
 ok("a table right under a paragraph line is still a table", 1, len(b.rows))
 has("... and is rendered as one", "<td>1/2</td>", b.page)
 
-b = sp.render(STAMPED + "| Lane | Due | State |\n|---|---|---|\n| A | 2026/10/01 | running |\n", now=NOW)
+b = sp.render(STAMPED + "| Lane | Due | State |\n|---|---|---|\n| A | 2026/10/01 | running |\n"
+              + PLANNED, now=NOW)
 ok("a slash date is not a count", (0, []), (len(b.rows), b.warnings))
 
-b = sp.render(STAMPED + TABLE + "| A | 1/1 | [done](#pr-12) |\n", now=NOW)
+b = sp.render(STAMPED + TABLE + "| A | 1/1 | [done](#pr-12) |\n" + PLANNED, now=NOW)
 has("a linked state word keeps its link, and appears once",
     '<td><a href="#pr-12"><span class="chip done">done</span></a></td>', b.page)
 

@@ -101,7 +101,8 @@ than overwrite it. Otherwise write it from the template below. In a linked workt
 the worktree's branch or purpose — `# <project> · <branch> — status` — so its page is not
 mistaken for another worktree's. Take the stamp from `date '+%Y-%m-%d %H:%M:%S'`, and
 fill the plan, the decisions already made and one row per lane or phase from what the session
-actually knows. Leave a section's placeholder out rather than invent content for it.
+actually knows. Leave a section's placeholder out rather than invent content for it — except the
+goal and its summary, which every board has: they are the page's title and the paragraph beside it.
 
 ### Step 4 — Publish
 
@@ -116,9 +117,9 @@ Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are
 
 **Last updated:** YYYY-MM-DD HH:MM:SS
 
-## Current plan: <the goal, in one line>
+## Current plan: <what this session's work is about, in one line>
 
-<Two or three sentences: what done looks like, and where the work lands — one PR, several, a release or none.>
+<Two or three sentences that say more: what the work changes and why, what done looks like, and where it lands — one PR, several, a release or none.>
 
 **Decisions:**
 - <YYYY-MM-DD HH:MM:SS: a decision the owner made that shapes the plan.>
@@ -143,8 +144,16 @@ Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are
 
 What the page does with it:
 
-- The H1 is the page's title. The preamble line is for someone who opens the file; the page drops
-  everything between the H1 and the stamp and says the same in its footer.
+- **The goal in `## Current plan:` is the page's title** — the big heading, the browser tab and the
+  artifact's name in the gallery — so the owner sees at a glance what the work in this tree is
+  about. Write it as that: *"streaming input for the parser"*, not *"phase 2"*. The paragraph right
+  under the heading is shown beside it as a short summary, and becomes the page's description.
+  The renderer warns when either is missing, and when a list, a table or a labelled line such as
+  `**Decisions:**` stands where the summary belongs. The rest of the section stays in the body
+  under a plain *Plan* heading.
+- The H1 names the project, and in a linked worktree the branch; the page shows it small above
+  the title. The preamble line is for someone who opens the file; the page drops everything
+  between the H1 and the stamp and says the same in its footer.
 - **Any table with an `N/M` column and a `State` column is drawn as progress bars**, one per row,
   and the headline sums every such table: *"7 of 19 tasks done · 1 of 4 lanes landed"*. One table
   per phase works. The first column's header names the rows (`Lane` → lanes, `Phase` → phases) and
@@ -208,7 +217,9 @@ whole batch, which is exactly when the owner looked.
 A lane landed, a phase finished, the plan changed, a ruling was made: **update the body, not just
 the header.**
 
-- Rewrite the plan summary and *Now* so they describe this state, not the one the plan started from.
+- Rewrite the plan's goal and summary and *Now* so they describe this state, not the one the plan
+  started from. The goal and summary are the first thing on the page: a stale one there misleads
+  before anything else is read.
 - Prune follow-ups that got fixed. Move a settled question into *Key rulings*.
 - When a plan finishes, the next one replaces it; it is not appended underneath. If the finished one
   is worth keeping, move it to a local archive file excluded the same way.
@@ -248,10 +259,10 @@ main tree's `.git/worktrees/`, outside the session's working directory, and the 
 publishes only files under that directory or the session's scratchpad. The scratchpad is the
 session's own, so this stays parallel-safe. Do the same anywhere the tool refuses the default path.
 
-**A warning is a defect in `STATUS.md`, not in the page**: a missing or malformed stamp, a time
-without its seconds, a dated entry without its time, a count above its total, a state word the page
-does not know, a count column it had to guess, a list nested at fewer than four spaces. Fix the
-file and render again; do not publish over a warning.
+**A warning is a defect in `STATUS.md`, not in the page**: a missing goal or summary, a missing or
+malformed stamp, a time without its seconds, a dated entry without its time, a count above its
+total, a state word the page does not know, a count column it had to guess, a list nested at fewer
+than four spaces. Fix the file and render again; do not publish over a warning.
 
 The renderer needs the `markdown` package and says so in one line — `pip install markdown` — when it
 is missing. Installing it is the owner's call: say what is missing rather than install it unasked.

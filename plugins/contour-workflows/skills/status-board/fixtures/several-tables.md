@@ -4,6 +4,9 @@
 
 ## Current plan: move the build to presets
 
+Every configuration the CI matrix builds becomes a CMake preset, and the scripts that set the
+flags by hand go. Done means CI builds from presets alone.
+
 ### Phase 1: configure
 
 | Workstream | Steps done | Status | Notes |
