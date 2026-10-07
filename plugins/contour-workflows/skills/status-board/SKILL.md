@@ -7,10 +7,14 @@ allowed-tools: Bash(git:*), Bash(python3:*), Bash(python:*), Bash(date:*), Read,
 
 # Status Board
 
-One file, one page, one link. `STATUS.md` sits at the repository root, is never committed, and is
-edited at every state change of a run; after every edit it is rendered into a page that reads on a
-phone and republished to the **same** private artifact URL. The owner keeps that one link and never
-has to ask where things stand.
+One file, one page, one link. `STATUS.md` sits at the root of the working tree, is never committed,
+and is edited at every state change of a run; after every edit it is rendered into a page that reads
+on a phone and republished to the **same** private artifact URL. The owner keeps that one link and
+never has to ask where things stand.
+
+**Each working tree has a board of its own** — the main one and every linked worktree: its own
+`STATUS.md`, its own rendered page, its own URL. Sessions in different worktrees run this skill in
+parallel without touching each other's board, and the owner holds one link per worktree.
 
 `/sprint-status` answers "where are we" from a GitHub project board, its PRs and its branches. This
 is the lightweight local tracker: for a run that has no board, or kept alongside one as the owner's
@@ -27,27 +31,37 @@ a stale body is worse than an old stamp — it tells the owner not to look close
 
 ## Context
 
-- Worktrees (the first is the main working tree, where `STATUS.md` lives): !`git worktree list 2>/dev/null || echo "(not a git repository)"`
-- Remembered page URL: !`git config --local --get status-board.url 2>/dev/null || echo "(none yet; the first publish creates it)"`
+- This working tree, whose root holds its `STATUS.md`: !`git rev-parse --show-toplevel 2>/dev/null || echo "(not a git repository)"`
+- Its git dir (under `.git/worktrees/` for a linked worktree): !`git rev-parse --absolute-git-dir 2>/dev/null || echo "(not a git repository)"`
+- Its remembered page URL: !`python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/status_page.py" --url 2>/dev/null || echo "(not read here; run status_page.py --url before publishing)"`
 
 ## Where things live
 
 | What | Where | Why there |
 |---|---|---|
-| `STATUS.md` | Root of the main working tree | One board per repository. The renderer finds it from any worktree, so a session in a linked worktree cannot render a different file to the same link |
-| Its exclusion | `/STATUS.md` in the file `git rev-parse --git-path info/exclude` names | Per clone and never committed. `.gitignore` is committed: the exclusion itself would publish the name of a file nobody else has, and change the repository for everyone to suit one workflow |
-| The rendered page | `git rev-parse --git-path info/status-board.html` — the renderer's default | Inside `.git`, so it cannot be committed. An untracked HTML file in a working tree shows in every `git status`, makes the quiet-lanes check in `/sprint-status` Step 3 report the lane as holding work, and is one `git add -A` from a commit |
-| The page's URL | `git config --local status-board.url` | Local config is never committed or pushed, is shared by every worktree, and one `git` command reads or writes it |
+| `STATUS.md` | Root of the current working tree | One board per worktree. Sessions in other worktrees have boards of their own, so none of them edits this file, and the renderer never reaches into another worktree for one |
+| Its exclusion | `/STATUS.md` in the file `git rev-parse --git-path info/exclude` names | Per clone and never committed, and shared by every worktree: the one line covers each worktree's root. `.gitignore` is committed: the exclusion itself would publish the name of a file nobody else has, and change the repository for everyone to suit one workflow |
+| The rendered page | `<git dir>/status-board.html` — the renderer's default | In the working tree's own git dir (`.git/worktrees/<name>/` for a linked one), so it cannot be committed and no other worktree's render overwrites it. An untracked HTML file in a working tree shows in every `git status`, makes the quiet-lanes check in `/sprint-status` Step 3 report the lane as holding work, and is one `git add -A` from a commit |
+| The page's URL | `<git dir>/status-board.url`, read and written by the renderer's `--url` and `--remember-url` | Beside the page, private to the worktree, and never committed or pushed. Not `git config --local`: every worktree shares it, so a URL kept there sends every worktree's board to one page |
 
-Use `--git-path` rather than a literal `.git/info/…`: in a linked worktree `.git` is a file, not a
-directory.
+Ask git for these paths rather than writing `.git/…` by hand: in a linked worktree `.git` is a
+file, not a directory.
+
+Boards from before they were per worktree kept the URL in `git config --local status-board.url`.
+That board was the one at the main working tree's root, so `--url` in the main tree still reads the
+old key until the next `--remember-url`, which retires it.
 
 ## Who writes it
 
-**One writer:** the session coordinating the run — the manager under `/sprint-run`, or the only
-session in a solo run. Developer sessions report to it (`lib/team-protocol.md` §*Reporting to the
-manager*) and never edit `STATUS.md`. The file is untracked, so two writers lose each other's edits
-with no merge to notice and no history to recover from.
+**One writer per board:** the session working in that worktree. A session never edits another
+worktree's `STATUS.md`, not even to note something about it there; it says so in its own board or
+reports to whoever coordinates. Under `/sprint-run` the manager's board is the run's, in the
+manager's worktree; developer sessions report to the manager (`lib/team-protocol.md` §*Reporting to
+the manager*) and keep a board only in their own worktree, if at all. The file is untracked, so two
+writers lose each other's edits with no merge to notice and no history to recover from.
+
+Two sessions in **the same** worktree share its board, and only one of them may write it — the one
+coordinating; the other reports to it.
 
 For the same reason, **edit it in place.** A whole-file rewrite from memory silently deletes
 whatever the session did not remember, and there is no `git checkout` to bring it back.
@@ -57,11 +71,11 @@ whatever the session did not remember, and there is no `git checkout` to bring i
 ### Step 1 — Refuse a tracked file
 
 ```bash
-git -C <main working tree> ls-files --error-unmatch STATUS.md
+git ls-files --error-unmatch :/STATUS.md
 ```
 
-The main working tree is the first path in the worktree list above. Run from a subdirectory or a
-linked worktree, a bare `ls-files` looks for the wrong path and reports a tracked file as untracked.
+`:/` is the root of the current working tree. Run from a subdirectory, a bare `STATUS.md` looks for
+the wrong path and reports a tracked file as untracked.
 
 If that succeeds, `STATUS.md` is committed. Stop and say so: an exclude entry does nothing for a
 tracked file, and untracking it is a commit that deletes it for everyone else — the owner's call,
@@ -70,10 +84,11 @@ not this skill's.
 ### Step 2 — Exclude it
 
 Append `/STATUS.md` to the file `git rev-parse --git-path info/exclude` names, unless a line already
-covers it. Then prove it, from the main working tree's root:
+covers it. That file is shared by every worktree, so a board set up in another worktree has usually
+added it already; do not add a second. Then prove it:
 
 ```bash
-git check-ignore -v STATUS.md
+git check-ignore -v :/STATUS.md
 ```
 
 The output must name `info/exclude`. A line naming `.gitignore` means a committed rule already
@@ -81,8 +96,10 @@ covers it — fine, but leave it alone and do not add a second one.
 
 ### Step 3 — Create it
 
-If `STATUS.md` already exists, it is the board: go to `update` rather than overwrite it.
-Otherwise write it from the template below. Take the stamp from `date '+%Y-%m-%d %H:%M:%S'`, and
+If `STATUS.md` already exists at this working tree's root, it is the board: go to `update` rather
+than overwrite it. Otherwise write it from the template below. In a linked worktree the H1 names
+the worktree's branch or purpose — `# <project> · <branch> — status` — so its page is not
+mistaken for another worktree's. Take the stamp from `date '+%Y-%m-%d %H:%M:%S'`, and
 fill the plan, the decisions already made and one row per lane or phase from what the session
 actually knows. Leave a section's placeholder out rather than invent content for it.
 
@@ -221,10 +238,15 @@ Then publish. Every edit ends in a publish, or the page and the file have alread
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/status_page.py"
 ```
 
-(`python` where that is the interpreter's name.) It finds `STATUS.md` from anywhere in the
-repository, writes the page to `.git/info/status-board.html`, and prints one line: the path, and
-the headline it drew. `--source`, `--output` and `--title` override the defaults; `--standalone`
+(`python` where that is the interpreter's name.) It finds this working tree's `STATUS.md` from
+anywhere inside it, writes the page to the working tree's git dir, and prints one line: the path,
+and the headline it drew. `--source`, `--output` and `--title` override the defaults; `--standalone`
 writes a complete HTML document instead of the fragment the `Artifact` tool wraps itself.
+
+**In a linked worktree, add `--output <scratchpad>/status-board.html`.** Its git dir lies under the
+main tree's `.git/worktrees/`, outside the session's working directory, and the `Artifact` tool
+publishes only files under that directory or the session's scratchpad. The scratchpad is the
+session's own, so this stays parallel-safe. Do the same anywhere the tool refuses the default path.
 
 **A warning is a defect in `STATUS.md`, not in the page**: a missing or malformed stamp, a time
 without its seconds, a dated entry without its time, a count above its total, a state word the page
@@ -236,32 +258,35 @@ is missing. Installing it is the owner's call: say what is missing rather than i
 
 ### Step 2 — Publish to the one URL
 
-**A URL is remembered** (`git config --local --get status-board.url`). If this session has neither
-published nor read that artifact yet, read it once with the `Artifact` tool first: the tool refuses
-to update an artifact the session did not create and has not read. Then publish the rendered file to
+Read this worktree's URL — the context above shows it, and from anywhere in the worktree:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/status_page.py" --url
+```
+
+**A URL is remembered.** If this session has neither published nor read that artifact yet, read it
+once with the `Artifact` tool first: the tool refuses to update an artifact the session did not
+create and has not read. Then publish the rendered file to
 that URL. The page is finished as rendered: publish the file as it is, not a rewrite of it.
 
 **No URL yet.** Publish the file as a new artifact, with a generic icon word such as `checklist` and
-a one-line description, and remember its URL at once:
+a one-line description that names the worktree, and remember its URL at once:
 
 ```bash
-git config --local status-board.url "<the artifact URL>"
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/status_page.py" --remember-url "<the artifact URL>"
 ```
 
-Give the owner the link. It is the only time they need it; afterwards it does not change.
+Give the owner the link, and say which worktree it follows. It is the only time they need it;
+afterwards it does not change. Never publish to a URL another worktree remembered: that page is
+its board, and the two would overwrite each other at every edit.
 
 **The read reports the artifact gone** — deleted, or not accessible to this account. This, and only
-this, replaces it: say so, publish a new one, replace the remembered URL, and give the owner the new
+this, replaces it: say so, publish a new one, `--remember-url` the new one, and give the owner the new
 link in so many words. The link they have is dead, and that is the one thing they must learn.
 
 **The read fails any other way** — a network error, expired authentication, a tool not loaded.
 Report the error and stop; do not create a second artifact. A failed read is not a missing page,
 and a replacement made for a passing reason leaves the owner's link on a page nobody updates.
-
-**The tool refuses the rendered file's path.** The default output sits in the main tree's
-`.git/info`, which is outside the working directory of a session in a linked worktree. Render again
-with `--output` into the session's scratchpad directory, and publish that file instead — to the
-remembered URL when there is one.
 
 The artifact is **private**. Publishing sends the content of `STATUS.md` to a page on claude.ai that
 only the owner can open: say so on the first publish, and keep credentials, tokens and anything else
@@ -277,6 +302,13 @@ back into the conversation. Say which tier it was: the artifact, or a local file
 and give the file's path. Do not apologise and do not retry; say that the page is local only and
 that `STATUS.md` itself is complete.
 
+## When the worktree goes away
+
+`git worktree remove` deletes an ignored `STATUS.md` without asking, and with it the worktree's git
+dir, which holds the page and its URL. The artifact itself stays, frozen at its last publish. Before
+a worktree with a board is removed, publish its final state — say so on the page when the run is
+over — and copy anything worth keeping somewhere that outlives the worktree.
+
 ## Rules
 
 - **NEVER commit or push `STATUS.md`, or exclude it through `.gitignore`.** `.git/info/exclude` only.
@@ -290,5 +322,6 @@ that `STATUS.md` itself is complete.
   failed for another reason is not a missing page, and the owner keeps one link.
 - **NEVER change the artifact's sharing, or suggest publishing the page anywhere else.**
 - **NEVER publish over a warning from the renderer.**
-- **ALWAYS keep one writer**: the coordinating session.
+- **ALWAYS keep one writer per board**: the session in that worktree. Never edit another
+  worktree's `STATUS.md`, and never publish to another worktree's URL.
 - **ALWAYS say which tier the owner got**: the artifact URL, or a local file path.
