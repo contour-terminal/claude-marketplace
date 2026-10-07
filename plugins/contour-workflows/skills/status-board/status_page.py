@@ -5,15 +5,23 @@ The status-board skill runs this after every edit of STATUS.md and republishes t
 private artifact URL, so the owner keeps a single link that is always current.
 
     python3 status_page.py [--source FILE] [--output FILE] [--title TEXT] [--standalone]
+    python3 status_page.py --url
+    python3 status_page.py --remember-url URL
 
---source      Defaults to STATUS.md at the root of the repository's main working tree, so a session
-              in a linked worktree renders the same board as one at the root.
---output      Defaults to <git common dir>/info/status-board.html: inside .git, so it can never be
-              committed, and shared by every worktree like the board itself. Outside a git
-              repository it falls back to the system temp directory.
+Every working tree of a repository — the main one and each linked worktree — has a board of its
+own: its own STATUS.md, its own rendered page and its own remembered URL, so sessions in different
+worktrees run the skill in parallel without writing over each other.
+
+--source      Defaults to STATUS.md at the root of the current working tree.
+--output      Defaults to <the working tree's git dir>/status-board.html: inside .git, so it can
+              never be committed, and private to the working tree (.git/worktrees/<name>/ for a
+              linked one). Outside a git repository it falls back to the system temp directory.
 --title       Defaults to the text of STATUS.md's H1.
 --standalone  Wraps the page in a complete HTML document, for opening from disk. Without it the
               output is the fragment the Artifact tool wraps in its own document skeleton.
+--url         Prints the working tree's remembered page URL, or a line saying there is none yet.
+--remember-url
+              Remembers URL as the working tree's page, in <git dir>/status-board.url.
 
 A progress bar is drawn for every row of every Markdown table that has an N/M column and a state
 column — one headed State or Status, or one made of recognised state words. The headline sums them.
@@ -37,8 +45,10 @@ from pathlib import Path
 
 try:
     import markdown
-except ImportError:
-    sys.exit("status_page.py needs the markdown package: pip install markdown")
+except ImportError:  # --url and --remember-url work without it; rendering says what is missing
+    markdown = None
+
+MARKDOWN_MISSING = "status_page.py needs the markdown package: pip install markdown"
 
 MARKDOWN_EXTENSIONS = ["tables", "sane_lists", "fenced_code"]
 
@@ -526,6 +536,8 @@ def timestamp_warnings(lines: list[str]) -> list[str]:
 
 def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md",
            now: datetime.datetime | None = None, standalone: bool = False) -> Board:
+    if markdown is None:
+        sys.exit(MARKDOWN_MISSING)
     # Line numbers in warnings are the file's own, so the nesting check reads it before the
     # blank lines that let a list or a table follow a paragraph line are put in.
     original = text.split("\n")
@@ -693,8 +705,9 @@ def git(*args: str, cwd: Path) -> str | None:
     return result.stdout.strip()
 
 
-def common_git_dir(start: Path) -> Path | None:
-    out = git("rev-parse", "--git-common-dir", cwd=start)
+def git_dir(start: Path, which: str = "--absolute-git-dir") -> Path | None:
+    """The working tree's own git dir, or with "--git-common-dir" the one its worktrees share."""
+    out = git("rev-parse", which, cwd=start)
     if not out:
         return None
     path = Path(out)
@@ -702,22 +715,52 @@ def common_git_dir(start: Path) -> Path | None:
 
 
 def default_source(start: Path) -> Path | None:
-    """STATUS.md at the root of the main working tree, from anywhere in the repository."""
-    common = common_git_dir(start)
-    if common is None:
-        return None
-    if common.name == ".git":
-        return common.parent / "STATUS.md"
+    """STATUS.md at the root of the working tree that start is in: each worktree has its own."""
     top = git("rev-parse", "--show-toplevel", cwd=start)
     return Path(top) / "STATUS.md" if top else None
 
 
 def default_output(source: Path) -> Path:
-    common = common_git_dir(source.resolve().parent)
-    if common is not None:
-        return common / "info" / "status-board.html"
+    own = git_dir(source.resolve().parent)
+    if own is not None:
+        return own / "status-board.html"
     digest = hashlib.sha1(str(source.resolve()).encode("utf-8")).hexdigest()[:8]
     return Path(tempfile.gettempdir()) / f"status-board-{digest}.html"
+
+
+# The URL lives in the working tree's own git dir, beside its page: `git config --local` is shared
+# by every worktree, so a URL kept there sends every worktree's board to one page. Before boards
+# were per worktree the URL was `git config --local status-board.url`; that one belonged to the
+# board at the main working tree's root, so the main tree still reads it until it remembers a URL.
+LEGACY_URL_KEY = "status-board.url"
+
+
+def is_main_worktree(start: Path) -> bool:
+    return git_dir(start) == git_dir(start, "--git-common-dir")
+
+
+def remembered_url(start: Path) -> str | None:
+    own = git_dir(start)
+    if own is None:
+        return None
+    path = own / "status-board.url"
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip() or None
+    if is_main_worktree(start):
+        return git("config", "--local", "--get", LEGACY_URL_KEY, cwd=start) or None
+    return None
+
+
+def remember_url(start: Path, url: str) -> Path | None:
+    own = git_dir(start)
+    if own is None:
+        return None
+    path = own / "status-board.url"
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(url + "\n")
+    if is_main_worktree(start):
+        git("config", "--local", "--unset", LEGACY_URL_KEY, cwd=start)  # one place for the URL
+    return path
 
 
 def committable(path: Path) -> bool:
@@ -734,12 +777,32 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
 
     parser = argparse.ArgumentParser(description="Render STATUS.md into a phone-friendly status page.")
-    parser.add_argument("--source", help="the status file (default: STATUS.md at the repository root)")
-    parser.add_argument("--output", help="where to write the page (default: <git dir>/info/status-board.html)")
+    parser.add_argument("--source", help="the status file (default: STATUS.md at the working tree's root)")
+    parser.add_argument("--output", help="where to write the page (default: <git dir>/status-board.html)")
     parser.add_argument("--title", help="the page title (default: the text of the file's H1)")
     parser.add_argument("--standalone", action="store_true",
                         help="write a complete HTML document for opening from disk")
+    parser.add_argument("--url", action="store_true", help="print the working tree's remembered page URL")
+    parser.add_argument("--remember-url", metavar="URL", help="remember URL as the working tree's page")
     args = parser.parse_args(argv)
+
+    if args.url or args.remember_url is not None:
+        if git("rev-parse", "--show-toplevel", cwd=Path.cwd()) is None:
+            print("error: not inside a git working tree", file=sys.stderr)
+            return 1
+        if args.url:
+            print(remembered_url(Path.cwd()) or "(none yet; the first publish creates it)")
+            return 0
+        url = args.remember_url.strip()
+        if not url or any(c.isspace() for c in url):
+            print(f"error: {args.remember_url!r} is not a URL", file=sys.stderr)
+            return 1
+        print(f"remembered {url} in {remember_url(Path.cwd(), url)}")
+        return 0
+
+    if markdown is None:
+        print(MARKDOWN_MISSING, file=sys.stderr)
+        return 1
 
     source = Path(args.source) if args.source else default_source(Path.cwd())
     if source is None:

@@ -31,7 +31,7 @@ FIXTURES = HERE / "fixtures"
 SCRIPT = HERE / "status_page.py"
 sys.dont_write_bytecode = True  # importing the renderer must not leave a __pycache__ in the plugin
 sys.path.insert(0, str(HERE))
-import status_page as sp  # noqa: E402  (exits with the pip hint when markdown is missing)
+import status_page as sp  # noqa: E402  (rendering exits with the pip hint when markdown is missing)
 
 NOW = datetime.datetime(2026, 3, 21, 18, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
 FONT_HOSTS = ("https://fonts.googleapis.com", "https://fonts.gstatic.com")
@@ -357,21 +357,60 @@ try:
         (repo / "sub").mkdir()
 
         r = page_script(cwd=repo / "sub")
-        default = repo / ".git" / "info" / "status-board.html"
+        main_page = repo / ".git" / "status-board.html"
         ok("from a subdirectory: exit 0", 0, r.returncode)
-        ok("the default output lands in .git/info", True, default.is_file())
+        ok("the default output lands in the working tree's git dir", True, main_page.is_file())
         has("the summary line is ASCII and carries the headline",
             "10 of 19 tasks done, 1 of 4 lanes landed)", r.stdout)
         ok("git sees nothing the board wrote", "", run("git", "status", "--porcelain", cwd=repo).stdout)
 
+        # Every worktree has a board of its own, so sessions in different worktrees run in
+        # parallel: its own STATUS.md, its own page and its own URL, none shared with another.
         run("git", "commit", "-q", "--allow-empty", "-m", "fixture", cwd=repo)
         worktree = tmp / "wt"
         run("git", "worktree", "add", "-q", "-b", "selftest-wt", str(worktree), cwd=repo)
-        default.unlink(missing_ok=True)
         r = page_script(cwd=worktree)
+        ok("a linked worktree without a STATUS.md of its own does not render the main tree's",
+           (1, True), (r.returncode, r.stderr.strip().endswith("wt/STATUS.md: no such file")))
+        shutil.copy(FIXTURES / "blocked.md", worktree / "STATUS.md")
+        main_before = main_page.read_text(encoding="utf-8")
+        r = page_script(cwd=worktree)
+        worktree_page = repo / ".git" / "worktrees" / "wt" / "status-board.html"
         ok("from a linked worktree: exit 0", 0, r.returncode)
-        ok("... it renders the main tree's STATUS.md into the shared .git/info", True, default.is_file())
-        ok("... and the worktree stays clean", "", run("git", "status", "--porcelain", cwd=worktree).stdout)
+        has("... it renders its own STATUS.md", "7 of 13 tasks done, 1 of 4 lanes landed)", r.stdout)
+        ok("... into its own git dir", True, worktree_page.is_file())
+        ok("... and leaves the main tree's page alone", main_before, main_page.read_text(encoding="utf-8"))
+        ok("the shared exclude covers the worktree's STATUS.md: it stays clean",
+           "", run("git", "status", "--porcelain", cwd=worktree).stdout)
+
+        none_yet = "(none yet; the first publish creates it)"
+        ok("no URL remembered yet", none_yet, page_script("--url", cwd=worktree).stdout.strip())
+        page_script("--remember-url", "https://claude.ai/artifact/wt", cwd=worktree)
+        ok("a worktree remembers its URL", "https://claude.ai/artifact/wt",
+           page_script("--url", cwd=worktree).stdout.strip())
+        ok("... which the main tree does not see", none_yet, page_script("--url", cwd=repo).stdout.strip())
+        ok("... nor git config, which every worktree shares", "",
+           run("git", "config", "--get-regexp", "status-board", cwd=repo).stdout)
+
+        run("git", "config", "--local", "status-board.url", "https://claude.ai/artifact/legacy", cwd=repo)
+        ok("the URL from before per-worktree boards belongs to the main tree",
+           ("https://claude.ai/artifact/legacy", "https://claude.ai/artifact/wt"),
+           (page_script("--url", cwd=repo / "sub").stdout.strip(),
+            page_script("--url", cwd=worktree).stdout.strip()))
+        page_script("--remember-url", "https://claude.ai/artifact/main", cwd=repo)
+        ok("remembering a URL in the main tree retires the old key",
+           ("https://claude.ai/artifact/main", ""),
+           (page_script("--url", cwd=repo).stdout.strip(),
+            run("git", "config", "--get-regexp", "status-board", cwd=repo).stdout))
+        r = run(sys.executable, "-c",
+                "import runpy, sys; sys.modules['markdown'] = None; "
+                "sys.argv = ['status_page.py', '--url']; "
+                f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')", cwd=repo)
+        ok("--url needs no markdown package", (0, "https://claude.ai/artifact/main"),
+           (r.returncode, r.stdout.strip()))
+        r = page_script("--remember-url", "not a url", cwd=repo)
+        ok("a URL with whitespace is refused", (1, "https://claude.ai/artifact/main"),
+           (r.returncode, page_script("--url", cwd=repo).stdout.strip()))
 
         r = page_script("--output", str(repo / "page.html"), cwd=repo)
         has("an --output in the working tree is warned", "could be committed", r.stderr)
