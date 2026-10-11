@@ -1,0 +1,21 @@
+{"logged": "2026-03-21 09:00:00", "event": "group", "group": "1", "name": "Foundation"}
+{"logged": "2026-03-21 09:00:05", "event": "start", "task": "1.1", "title": "Parser: streaming input", "group": "1"}
+{"logged": "2026-03-21 09:10:00", "event": "start", "task": "1.2", "title": "Cache | content keys", "group": "1"}
+{"logged": "2026-03-21 09:45:35", "event": "report", "task": "1.1"}
+{"logged": "2026-03-21 10:05:35", "event": "done", "task": "1.1", "fix_rounds": 1}
+{"logged": "2026-03-21 10:10:30", "event": "report", "task": "1.2", "at": "2026-03-21 10:10:00"}
+{"logged": "2026-03-21 10:11:00", "event": "done", "task": "1.2", "fix_rounds": 0}
+{"logged": "2026-03-21 10:30:00", "event": "group", "group": "2", "name": "Gate"}
+{"logged": "2026-03-21 10:30:00", "event": "start", "task": "2.1", "title": "Phase gate", "group": "2"}
+{"logged": "2026-03-21 10:30:00", "event": "step", "task": "2.1", "step": "build", "title": "Build and test"}
+{"logged": "2026-03-21 10:45:00", "event": "step", "task": "2.1", "step": "review", "title": "Review"}
+{"logged": "2026-03-21 11:30:00", "event": "step-commits", "task": "2.1", "step": "build", "first": "2026-03-21 10:40:00", "last": "2026-03-21 11:20:00", "count": 3}
+{"logged": "2026-03-21 11:30:00", "event": "step-done", "task": "2.1", "step": "build", "note": "green"}
+{"logged": "2026-03-21 11:45:00", "event": "step-done", "task": "2.1", "step": "review", "note": "two findings"}
+{"logged": "2026-03-21 12:00:00", "event": "start", "task": "hotfix", "title": "Release hotfix", "group": ""}
+{"logged": "2026-03-21 12:10:00", "event": "done", "task": "hotfix"}
+{"logged": "2026-03-21 12:15:00", "event": "idle", "where": "2.1", "since": "2026-03-21 11:45:00", "what": "review done; nobody dispatched the fixes"}
+{"logged": "2026-03-21 12:15:00", "event": "step", "task": "2.1", "step": "fixes", "title": "Review fixes"}
+{"logged": "2026-03-21 12:40:00", "event": "start", "task": "3.1", "title": "Docs", "group": "3"}
+{"logged": "2026-03-21 12:50:00", "event": "step-commits", "task": "2.1", "step": "fixes", "first": "2026-03-21 12:30:00", "last": "2026-03-21 12:50:00", "count": 2}
+{"logged": "2026-03-21 12:55:00", "event": "report", "task": "3.1"}

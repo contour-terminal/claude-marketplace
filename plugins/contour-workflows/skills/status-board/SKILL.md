@@ -1,6 +1,6 @@
 ---
 name: status-board
-description: Keep a local, never-committed STATUS.md current at every state change of a run, and republish it after every edit as a phone-friendly page at one private artifact URL, so the owner can see where the work stands from anywhere without asking. Use to set up a status board or phase board, to keep STATUS.md current while tasks are dispatched, reviewed and landed, to answer "where are we" for a local run that has no project board, or to publish or refresh the status page. The local, board-free counterpart of /sprint-status.
+description: Keep a local, never-committed STATUS.md current at every state change of a run, and republish it after every edit as a phone-friendly page at one private artifact URL, so the owner can see where the work stands from anywhere without asking — and where the time went, per lane or phase, per task and per step of a long task, from a time log stamped as each event happens. Use to set up a status board or phase board, to keep STATUS.md current while tasks are dispatched, reviewed and landed, to log the time a run spends, to answer "where are we" for a local run that has no project board, or to publish or refresh the status page. The local, board-free counterpart of /sprint-status.
 argument-hint: "[init | update | publish]"
 allowed-tools: Bash(git:*), Bash(python3:*), Bash(python:*), Bash(date:*), Read, Edit, Write, Grep, Glob, Artifact
 ---
@@ -27,6 +27,13 @@ describes an earlier state: a lane in review that landed an hour ago, a follow-u
 a *Now* line naming work that finished. The stamp vouches for the whole body, so a fresh stamp over
 a stale body is worse than an old stamp — it tells the owner not to look closer.
 
+**Every board also says where the time went.** A time log beside the page is stamped at the moment
+of each dispatch, report, completion and step, and every render rebuilds the board's
+`## Time spent` section from it: per lane or phase, per task, per step of a long task, with every
+idle stall named. Its sibling failure is a row that says a phase gate took fifteen hours and nothing
+about which of them were building, reviewing, fixing or waiting — or timings pieced together
+afterwards from memory, which are not timings at all.
+
 `$ARGUMENTS` picks the mode. With none: `init` when there is no `STATUS.md`, otherwise `update`.
 
 ## Context
@@ -43,6 +50,7 @@ a stale body is worse than an old stamp — it tells the owner not to look close
 | Its exclusion | `/STATUS.md` in the file `git rev-parse --git-path info/exclude` names | Per clone and never committed, and shared by every worktree: the one line covers each worktree's root. `.gitignore` is committed: the exclusion itself would publish the name of a file nobody else has, and change the repository for everyone to suit one workflow |
 | The rendered page | `<git dir>/status-board.html` — the renderer's default | In the working tree's own git dir (`.git/worktrees/<name>/` for a linked one), so it cannot be committed and no other worktree's render overwrites it. An untracked HTML file in a working tree shows in every `git status`, makes the quiet-lanes check in `/sprint-status` Step 3 report the lane as holding work, and is one `git add -A` from a commit |
 | The page's URL | `<git dir>/status-board.url`, read and written by the renderer's `--url` and `--remember-url` | Beside the page, private to the worktree, and never committed or pushed. Not `git config --local`: every worktree shares it, so a URL kept there sends every worktree's board to one page |
+| The time log | `<git dir>/status-board.times.jsonl`, appended by `time_log.py` and read by the renderer | Beside the page and its URL, for the same reasons: one per worktree, never committed. One stamped line per event, appended and never rewritten, so a time once logged cannot be revised from memory |
 
 Ask git for these paths rather than writing `.git/…` by hand: in a linked worktree `.git` is a
 file, not a directory.
@@ -62,6 +70,11 @@ writers lose each other's edits with no merge to notice and no history to recove
 
 Two sessions in **the same** worktree share its board, and only one of them may write it — the one
 coordinating; the other reports to it.
+
+The time log has the same one writer: the session that writes the board. A developer session that
+reports to a coordinator logs nothing for the run — its report is the event, and the coordinator
+stamps it on arrival, with `--at` and the message's own time when it arrived before the turn that
+handles it.
 
 For the same reason, **edit it in place.** A whole-file rewrite from memory silently deletes
 whatever the session did not remember, and there is no `git checkout` to bring it back.
@@ -103,6 +116,14 @@ mistaken for another worktree's. Take the stamp from `date '+%Y-%m-%d %H:%M:%S'`
 fill the plan, the decisions already made and one row per lane or phase from what the session
 actually knows. Leave a section's placeholder out rather than invent content for it — except the
 goal and its summary, which every board has: they are the page's title and the paragraph beside it.
+`## Time spent` stays as the template has it: the renderer writes that section, not the session.
+
+Then name each lane or phase in the time log, by the id its tasks start with, so the timings carry
+the names the progress table uses — the time log's commands are under *The time log* below:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/time_log.py" group 2 "Daemon replication"
+```
 
 ### Step 4 — Publish
 
@@ -132,6 +153,10 @@ Local-only tracker: excluded via `.git/info/exclude`, never committed. Times are
 
 **Now:** <what is running at this moment, one clause per lane.>
 **Next:** <the steps from here to done, in order.>
+
+## Time spent
+
+No timed work yet: the log starts at the first dispatch.
 
 ## Key rulings
 
@@ -171,6 +196,15 @@ What the page does with it:
   the minute and about a list item that opens with a date and no time, and the page's own
   *Page generated* line carries seconds too. Two entries made in the same minute keep their order,
   and a reader can match an entry to a log line or a commit.
+- **`## Time spent` is generated from the time log at every render**, in place: the section's own
+  lines change and no others, and a board without one gains it after the plan's section. It opens
+  with a row per lane or phase — tasks finished, wall time, implementation, review and fixes, the
+  mean per finished task, idle — then a table per lane or phase with a row per task, a table per
+  long task with a row per step, and the idle stalls. *Implement* runs from dispatch to the first
+  commit or report, *review & fixes* from there to done; work still running counts to the render.
+  Under a task's steps, wall time stands beside summed step time, with the part that ran in
+  parallel and the part with no step running named. An empty log is one line, not a missing
+  section. Its tables are never drawn as progress, whatever their columns hold.
 
 The state column starts with one of these; anything after it stays as written
 (`blocked — on the schema decision`):
@@ -192,10 +226,12 @@ The headline says *landed* when every finished row landed or merged, and *done* 
 **At every state change, in the same turn** as the change:
 
 - a task dispatched, reported, reviewed, fixed or completed;
+- a step of a long task begun or finished — a gate's build, a review, a round of fixes;
 - a branch landed or merged;
 - a baseline or a test count moved;
 - a ruling made — by the owner, or a question settled mid-run;
 - a blocker appeared or cleared;
+- a stall found — a lane, a session or a teammate idle with nothing moving;
 - the plan changed.
 
 Not at the end of a batch. A page brought up to date when the batch finished was wrong for the
@@ -211,6 +247,44 @@ whole batch, which is exactly when the owner looked.
 2. **The row.** Its `N/M`, its state, and *where it is* — the commit, the PR, what is in review.
 3. **`Now` and `Next`.**
 4. **Any count that moved** — a baseline, a test total — wherever the file states it.
+5. **The time log**, when the change is an event it records: stamped before the edit, as below.
+   The render then carries it into `## Time spent`; that section is never edited by hand.
+
+### The time log
+
+**Stamp each event in the log in the same turn as the event**, with `time_log.py` — never from
+memory, never at the end of a batch, never pieced together afterwards. The log is the only source of
+the board's timings: an event missing from it is time the board cannot account for, and one stamped
+late carries the wrong time.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/time_log.py" start 2.5 "Wire the mirror"
+```
+
+| The event | The command |
+|---|---|
+| A lane or phase named | `group <id> <name>` |
+| A task dispatched | `start <task> <title>` — in the group its id names up to the first dot (`2.5` → `2`), or `--group <id>` |
+| Its first commit or report | `report <task>`; `--at <time>` with the message's time, or `--commit <rev>`, when it arrived before this turn. The first one logged counts |
+| The task complete | `done <task> --fix-rounds <n>` |
+| A step of a long task begins | `step <task> <step> <title>` |
+| A step's commits | `step-commits <task> <step> <rev>...` — commits or ranges; the log reads their author dates and counts them |
+| A step complete | `step-done <task> <step> --note <what came of it>` |
+| A stall found | `idle <task or group> <since> <what stalled, and on what>` |
+
+- **A long task is logged by step.** A phase gate, a release, a migration — anything that runs for
+  hours — gets a step for its build, each review and each round of fixes, each with its commits.
+  Steps may run in parallel: the board sets their wall time beside their summed time, so both the
+  overlap and the dead time between steps show. One row for a fifteen-hour gate is the failure
+  this exists for.
+- **Every idle stall is named.** When a check finds work standing still, log `idle` with the time
+  of its last record of activity — its last commit, its last message — and what it was waiting on.
+  The stall ends when it is logged; then unstick it.
+- **Each command prints the time it logged**, which can stamp the board's edit for the same event.
+- **The log only grows.** A later `done` or `step-commits` replaces an earlier one; nothing else is
+  revised. An event the log refuses — a report for a task never started, a second start — names
+  what was not logged; log what happened, when it happened, rather than route around it.
+- `--log FILE` names a log of its own, for a board outside a git repository.
 
 ### What, at a milestone
 
@@ -234,10 +308,10 @@ for.
 
 ### Status, not notes
 
-Goal, decisions, the progress table, *Now*, *Next*, rulings, follow-ups. Lessons learned, rules for
-working in the repository and how-tos belong somewhere else — a `NOTES.md`, the project's own agent
-instructions — and history belongs in the archive. A status file that accumulates everything
-becomes a document the owner has to read in order to find the status.
+Goal, decisions, the progress table, *Now*, *Next*, the time spent, rulings, follow-ups. Lessons
+learned, rules for working in the repository and how-tos belong somewhere else — a `NOTES.md`, the
+project's own agent instructions — and history belongs in the archive. A status file that
+accumulates everything becomes a document the owner has to read in order to find the status.
 
 Then publish. Every edit ends in a publish, or the page and the file have already diverged.
 
@@ -251,8 +325,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/status_page.py"
 
 (`python` where that is the interpreter's name.) It finds this working tree's `STATUS.md` from
 anywhere inside it, writes the page to the working tree's git dir, and prints one line: the path,
-and the headline it drew. `--source`, `--output` and `--title` override the defaults; `--standalone`
-writes a complete HTML document instead of the fragment the `Artifact` tool wraps itself.
+and the headline it drew. `--source`, `--output`, `--title` and `--time-log` override the defaults;
+`--standalone` writes a complete HTML document instead of the fragment the `Artifact` tool wraps
+itself.
+
+**It first rebuilds `## Time spent` in `STATUS.md`** from the time log, and writes the file back
+when that changed it — the section's own lines, nothing else. While work is running that is every
+render, so read the file again before the next edit.
 
 **In a linked worktree, add `--output <scratchpad>/status-board.html`.** Its git dir lies under the
 main tree's `.git/worktrees/`, outside the session's working directory, and the `Artifact` tool
@@ -262,7 +341,8 @@ session's own, so this stays parallel-safe. Do the same anywhere the tool refuse
 **A warning is a defect in `STATUS.md`, not in the page**: a missing goal or summary, a missing or
 malformed stamp, a time without its seconds, a dated entry without its time, a count above its
 total, a state word the page does not know, a count column it had to guess, a list nested at fewer
-than four spaces. Fix the file and render again; do not publish over a warning.
+than four spaces — or in the time log: a line it could not read, a record that matches nothing
+logged before it. Fix the file and render again; do not publish over a warning.
 
 The renderer needs the `markdown` package and says so in one line — `pip install markdown` — when it
 is missing. Installing it is the owner's call: say what is missing rather than install it unasked.
@@ -316,9 +396,10 @@ that `STATUS.md` itself is complete.
 ## When the worktree goes away
 
 `git worktree remove` deletes an ignored `STATUS.md` without asking, and with it the worktree's git
-dir, which holds the page and its URL. The artifact itself stays, frozen at its last publish. Before
-a worktree with a board is removed, publish its final state — say so on the page when the run is
-over — and copy anything worth keeping somewhere that outlives the worktree.
+dir, which holds the page, its URL and the time log. The artifact itself stays, frozen at its last
+publish, timings included. Before a worktree with a board is removed, publish its final state — say
+so on the page when the run is over — and copy anything worth keeping somewhere that outlives the
+worktree.
 
 ## Rules
 
@@ -329,6 +410,12 @@ over — and copy anything worth keeping somewhere that outlives the worktree.
   without its seconds.**
 - **NEVER move the stamp without the read-back.** The stamp vouches for the body.
 - **NEVER save updates for the end of a batch.** Same turn as the change.
+- **NEVER log a time from memory, after the fact, or at the end of a batch.** Same turn as the
+  event, with `time_log.py`; a time it does not take from the clock comes from a record — a
+  message, a commit.
+- **NEVER edit `## Time spent` or the time log by hand.** The render rebuilds the section; the log
+  only grows.
+- **ALWAYS log a long task by step, and name every idle stall.**
 - **NEVER create a second artifact unless a read reports the remembered one gone.** A read that
   failed for another reason is not a missing page, and the owner keeps one link.
 - **NEVER change the artifact's sharing, or suggest publishing the page anywhere else.**
