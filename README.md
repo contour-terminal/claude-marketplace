@@ -266,7 +266,7 @@ Both GitHub and GitLab are supported where it matters (`/create-pr`, `/draft-pr`
    name: my-skill
    description: One or two sentences covering what it does *and* when to use it. This is
      the only thing Claude sees when deciding whether to reach for the skill, so lead with
-     the trigger, not the implementation.
+     the trigger, not the implementation. At most 1024 characters; validate.py checks it.
    argument-hint: "[optional-arg]"
    allowed-tools: Bash(git:*), Read, Grep, Glob
    ---
