@@ -14,8 +14,12 @@ skipped, and say so, when git is not on PATH.
 from __future__ import annotations
 
 import ast
+import codecs
+import contextlib
 import datetime
 import html
+import io
+import json
 import os
 import re
 import shutil
@@ -29,9 +33,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
 SCRIPT = HERE / "status_page.py"
+TIME_SCRIPT = HERE / "time_log.py"
 sys.dont_write_bytecode = True  # importing the renderer must not leave a __pycache__ in the plugin
 sys.path.insert(0, str(HERE))
 import status_page as sp  # noqa: E402  (rendering exits with the pip hint when markdown is missing)
+import time_log as tl  # noqa: E402
 
 NOW = datetime.datetime(2026, 3, 21, 18, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
 FONT_HOSTS = ("https://fonts.googleapis.com", "https://fonts.gstatic.com")
@@ -352,6 +358,217 @@ has("tables scroll in their own box", "overflow-x: auto;", block(r"\.table-wrap"
 has("font stacks fall back to system fonts", "system-ui", block(r"(?m)^:root"))
 
 # ============================================================================================
+# The time log and the Time spent section
+# ============================================================================================
+
+# Durations: minutes and seconds below an hour, hours and minutes from an hour up.
+ok("durations at the minute and hour boundaries",
+   ["0m 00s", "0m 59s", "1m 00s", "59m 59s", "1h 00m", "1h 00m", "1h 01m", "25h 00m", "-1m 30s", "—"],
+   [sp.duration(s) for s in (0, 59, 60, 3599, 3600, 3659, 3660, 90000, -90, None)])
+
+EMPTY = "## Time spent\n\n" + sp.NO_TIMES + "\n"
+ok("an empty log is a short line, not nothing", EMPTY, sp.time_section(sp.fold_times([]), NOW))
+ok("... and so is a log that is not there", ([], []), sp.read_time_log(FIXTURES / "no-such-log.jsonl"))
+
+# fixtures/time-log.jsonl at 13:00:00: phase 1 finished, 2.1 a gate whose steps overlap, a task
+# with no group, 3.1 running and reported. Every value below is worked out from the fixture.
+TIMES_NOW = datetime.datetime(2026, 3, 21, 13, 0, 0)
+records, problems = sp.read_time_log(FIXTURES / "time-log.jsonl")
+times = sp.fold_times(records)
+ok("the fixture log reads and folds cleanly", ([], []), (problems, times.problems))
+section = sp.time_section(times, TIMES_NOW)
+section_lines = section.split("\n")
+
+
+def row(start: str) -> str:
+    return next((line for line in section_lines if line.startswith(start)), "")
+
+
+has("running work counts to the render's time", "Work still running counts to 2026-03-21 13:00:00.",
+    section)
+ok("a finished phase: wall time from the first dispatch to the last done, implement and review "
+   "summed, the mean per finished task",
+   "| 1 · Foundation | 2 | 1h 10m | 1h 45m | 21m 00s | 1h 03m | — |", row("| 1 · "))
+ok("a running phase counts to now, and carries its stall",
+   "| 2 · Gate (running) | 0 | 2h 30m | 2h 30m | — | — | 30m 00s |", row("| 2 · "))
+ok("a task with no group, done without a report: all of it implementation",
+   "| Ungrouped | 1 | 10m 00s | 10m 00s | — | 10m 00s | — |", row("| Ungrouped "))
+ok("an unnamed group is named by its id",
+   "| 3 (running) | 0 | 20m 00s | 15m 00s | 5m 00s | — | — |", row("| 3 "))
+ok("the totals: wall time across everything, the mean over the three finished tasks",
+   "| **All** (running) | 3 | 3h 59m | 4h 40m | 26m 00s | 45m 30s | 30m 00s |", row("| **All**"))
+ok("an hour to the second is 1h 00m, a minute to the second 1m 00s; a pipe in a title is escaped",
+   "| 1.2 | Cache \\| content keys | 2026-03-21 09:10:00 | 1h 00m | 1m 00s | 1h 01m | — | 0 |",
+   row("| 1.2 "))
+ok("a running task without a report", "| 2.1 | Phase gate (running) | 2026-03-21 10:30:00 | 2h 30m | — "
+   "| 2h 30m | 30m 00s | — |", row("| 2.1 "))
+ok("a running task after its report: review counts to now",
+   "| 3.1 | Docs (running) | 2026-03-21 12:40:00 | 15m 00s | 5m 00s | 20m 00s | — | — |", row("| 3.1 "))
+ok("a step with its commits", "| build | Build and test | 2026-03-21 10:30:00 | 2026-03-21 10:40:00 "
+   "| 2026-03-21 11:20:00 | 2026-03-21 11:30:00 | 1h 00m | 3 | green |", row("| build "))
+ok("a running step counts to now", "| fixes | Review fixes (running) | 2026-03-21 12:15:00 "
+   "| 2026-03-21 12:30:00 | 2026-03-21 12:50:00 | — | 45m 00s | 2 |  |", row("| fixes "))
+# Build 10:30-11:30 and review 10:45-11:45 overlap by 45 minutes; nothing ran 11:45-12:15.
+ok("overlapping steps: wall time beside step time, the overlap and the gap named",
+   "3 steps, 5 commits · wall time 2h 30m · step time 2h 45m · 45m 00s of it in parallel · "
+   "30m 00s with no step running.", row("3 steps"))
+ok("the stall, named", "| Task 2.1 | 2026-03-21 11:45:00 | 2026-03-21 12:15:00 | 30m 00s "
+   "| review done; nobody dispatched the fixes |", row("| Task 2.1 "))
+ok("groups in the order the log met them",
+   ["### 1 · Foundation", "### 2 · Gate", "### Ungrouped", "### 3", "### Idle stalls"],
+   [line for line in section_lines if line.startswith("###")])
+finished = sp.fold_times([r for r in records if r.get("task") != "2.1" and r.get("where") != "2.1"
+                          and r.get("task") != "3.1"])
+has("with nothing running, no render time is stated, so the section does not change between renders",
+    "counts to", sp.time_section(finished, TIMES_NOW), present=False)
+
+# The section in the board: replaced in place, everything else kept to the byte.
+board_text = (FIXTURES / "example.md").read_text(encoding="utf-8")
+head, tail = board_text.split("## Key rulings", 1)
+tail = "## Key rulings" + tail
+ok("a board without the section gains it after the plan's section",
+   head + section + "\n" + tail, sp.with_time_section(board_text, section))
+stale = head + "## Time spent\n\nold timings\n\n| Lane | Tasks done | State |\n|---|---|---|\n| A | 1/2 | done |\n\n"
+ok("re-rendering replaces the section in place and touches nothing else",
+   head + section + "\n" + tail, sp.with_time_section(stale + tail, section))
+once = sp.with_time_section(board_text, section)
+ok("... and again changes nothing", once, sp.with_time_section(once, section))
+ok("a section at the end of the file is replaced to the end",
+   "# x\n\n## Current plan: y\n\nWhat y is.\n\n" + EMPTY,
+   sp.with_time_section("# x\n\n## Current plan: y\n\nWhat y is.\n\n## Time spent\n\nold\n", EMPTY))
+ok("a board with no trailing newline gains a blank line before it",
+   "# x\n\n## Current plan: y\n\nWhat y is.\n\n" + EMPTY,
+   sp.with_time_section("# x\n\n## Current plan: y\n\nWhat y is.", EMPTY))
+FENCED = "# x\n\n## Current plan: y\n\nWhat y is.\n\n```\n## Time spent\nkept\n```\n\n## Key rulings\n"
+ok("a heading in a code fence is not the section",
+   FENCED.replace("## Key rulings", EMPTY + "\n## Key rulings"), sp.with_time_section(FENCED, EMPTY))
+ok("without a plan the section goes at the end", "# x\n\n- one\n\n" + EMPTY,
+   sp.with_time_section("# x\n\n- one\n", EMPTY))
+
+# On disk: the byte-order mark and the line endings are the file's own, and stay so.
+scratch = Path(tempfile.mkdtemp(prefix="status-board-selftest-"))
+try:
+    crlf = scratch / "STATUS.md"
+    crlf.write_bytes(codecs.BOM_UTF8 + board_text.replace("\n", "\r\n").encode("utf-8"))
+    ok("refreshing returns the board as the renderer reads it",
+       head + section + "\n" + tail, sp.refresh_time_section(crlf, section))
+    ok("... and writes it with the file's BOM and CRLF line endings",
+       codecs.BOM_UTF8 + (head + section + "\n" + tail).replace("\n", "\r\n").encode("utf-8"),
+       crlf.read_bytes())
+
+    # The CLI, in-process with a pinned clock: each event is stamped when it is logged, and an
+    # event the log cannot take is refused with nothing written.
+    log = scratch / "times.jsonl"
+
+    def event(hms: tuple, *argv: str) -> tuple:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = tl.main(["--log", str(log), *argv], clock=lambda: datetime.datetime(2026, 3, 21, *hms, 123456))
+        return code, out.getvalue().strip(), err.getvalue().strip()
+
+    def lines() -> list[str]:
+        return log.read_text(encoding="utf-8").splitlines() if log.is_file() else []
+
+    ok("group: logged with the clock's time, to the second", (0, "2026-03-21 09:00:00 group 1: Foundation", ""),
+       event((9, 0, 0), "group", "1", "Foundation"))
+    ok("start: in the group its id names", (0, "2026-03-21 09:00:05 start 1.1 in group 1", ""),
+       event((9, 0, 5), "start", "1.1", "Parser"))
+    ok("... as the record says", {"logged": "2026-03-21 09:00:05", "event": "start", "task": "1.1",
+                                  "title": "Parser", "group": "1"}, json.loads(lines()[-1]))
+    ok("start --group overrides the id", (0, "2026-03-21 09:01:00 start lane-a.3 in group cache", ""),
+       event((9, 1, 0), "start", "lane-a.3", "Keys", "--group", "cache"))
+    ok("an id without a dot is in no group", (0, "2026-03-21 09:02:00 start hotfix", ""),
+       event((9, 2, 0), "start", "hotfix", "Release hotfix"))
+    before = lines()
+    refusals = [
+        ("a second start", ((9, 3, 0), "start", "1.1", "Again"), "task 1.1 already started at 2026-03-21 09:00:05"),
+        ("a report for a task never started", ((9, 3, 0), "report", "9.9"), "task 9.9 was never started"),
+        ("a report time without its seconds", ((9, 3, 0), "report", "1.1", "--at", "2026-03-21 09:02"),
+         "'2026-03-21 09:02' is not YYYY-MM-DD HH:MM:SS"),
+        ("a report before its dispatch", ((9, 3, 0), "report", "1.1", "--at", "2026-03-21 08:59:59"),
+         "2026-03-21 08:59:59 is not between task 1.1's start and now"),
+        ("a report after now", ((9, 3, 0), "report", "1.1", "--at", "2026-03-21 09:03:01"),
+         "2026-03-21 09:03:01 is not between task 1.1's start and now"),
+        ("negative fix rounds", ((9, 3, 0), "done", "1.1", "--fix-rounds", "-1"),
+         "--fix-rounds counts rounds; it cannot be negative"),
+        ("a step of a task never started", ((9, 3, 0), "step", "9.9", "a", "x"), "task 9.9 was never started"),
+        ("the end of a step never started", ((9, 3, 0), "step-done", "1.1", "a"), "task 1.1 has no step a"),
+        ("a stall for nothing in the log", ((9, 3, 0), "idle", "7", "2026-03-21 09:00:00", "x"),
+         "no task or group 7 in the log"),
+        ("a stall that begins after now", ((9, 3, 0), "idle", "1", "2026-03-21 09:03:01", "x"),
+         "2026-03-21 09:03:01 is not between 1's start and now"),
+        ("a stall that begins before its task", ((9, 3, 0), "idle", "1.1", "2026-03-21 09:00:04", "x"),
+         "2026-03-21 09:00:04 is not between 1.1's start and now"),
+        ("a stall that begins before its group's first task", ((9, 3, 0), "idle", "1", "2020-01-01 00:00:00", "x"),
+         "2020-01-01 00:00:00 is not between 1's start and now"),
+    ]
+    for what, (hms, *argv), message in refusals:
+        ok(f"refused: {what}", (1, "", f"error: {message}"), event(hms, *argv))
+    ok("... with nothing written", before, lines())
+    ok("report --at takes the message's time", (0, "2026-03-21 09:45:35 report 1.1 at 2026-03-21 09:40:00", ""),
+       event((9, 45, 35), "report", "1.1", "--at", "2026-03-21 09:40:00"))
+    ok("a second report keeps the first, and writes nothing",
+       (0, "task 1.1: its first report is logged at 2026-03-21 09:40:00; kept", "", len(before) + 1),
+       event((9, 50, 0), "report", "1.1") + (len(lines()),))
+    event((10, 0, 0), "step", "1.1", "build", "Build")
+    ok("refused: a second start of a step",
+       (1, "", "error: step build of task 1.1 already started at 2026-03-21 10:00:00"),
+       event((10, 0, 1), "step", "1.1", "build", "Again"))
+    event((10, 30, 0), "step-done", "1.1", "build", "--note", "green")
+    event((10, 40, 0), "idle", "1", "2026-03-21 10:30:00", "waiting on the review")
+    event((10, 45, 0), "done", "1.1", "--fix-rounds", "1")
+    ok("the log only ever grows: every earlier line is still there, unchanged", before, lines()[:len(before)])
+    task = sp.fold_times(sp.read_time_log(log)[0]).tasks["1.1"]
+    ok("... and folds to what was logged",
+       ("2026-03-21 09:00:05", "2026-03-21 09:40:00", "2026-03-21 10:45:00", 1, "green"),
+       (sp.when(task.start), sp.when(task.report), sp.when(task.done), task.fix_rounds, task.steps["build"].note))
+
+    # A log is read as leniently as it can be, and what it skips is said, as a render warning.
+    log.write_text('{"logged": "2026-03-21 09:00:00", "event": "start", "task": "1", "title": "x"}\n'
+                   'not json\n\n{"logged": "yesterday", "event": "done", "task": "1"}\n'
+                   '{"logged": "2026-03-21 09:05:00", "event": "report", "task": "2"}\n', encoding="utf-8")
+    records, problems = sp.read_time_log(log)
+    ok("an unreadable line, or one without its stamp, is skipped and said",
+       ["time log line 2 is not a stamped record; skipped", "time log line 4 is not a stamped record; skipped"],
+       problems)
+    ok("a record that matches nothing before it is skipped and said",
+       ["time log: a 'report' record logged 2026-03-21 09:05:00 matches nothing logged before it; skipped"],
+       sp.fold_times(records).problems)
+    ok("the first report counts, however many a log holds", "2026-03-21 09:10:00", sp.when(sp.fold_times([
+        {"logged": "2026-03-21 09:00:00", "event": "start", "task": "1", "title": "x"},
+        {"logged": "2026-03-21 09:10:00", "event": "report", "task": "1"},
+        {"logged": "2026-03-21 09:20:00", "event": "report", "task": "1", "at": "2026-03-21 09:15:00"},
+    ]).tasks["1"].report))
+finally:
+    shutil.rmtree(scratch, ignore_errors=True)
+
+# Rendered, the section raises no warning and adds no progress: its tables are not progress tables
+# by their columns, and the renderer would not read them as progress even if a log made them look
+# like it — step ids of 1/2 and 2/2, titled with state words.
+b = sp.render(sp.with_time_section(board_text, section), now=NOW)
+p = check_page("example with timings", b)
+ok("example with timings: the progress is still the board's own", (4, "10 of 19 tasks done · 1 of 4 lanes landed"),
+   (len(b.rows), b.headline))
+has("example with timings: the section is on the page", "<h2>Time spent</h2>", b.page)
+ok("example with timings: one table for the board's progress, and seven for its timings", 8,
+   p.count("table-wrap"))
+span = sp.time_section_span(sp.with_time_section(board_text, section).split("\n"))
+timing_tables = [t for t in sp.find_tables(sp.with_time_section(board_text, section).split("\n"))
+                 if span[0] <= t.start < span[1]]
+ok("no table of the section has the columns of a progress table", [None] * 7,
+   [sp.progress_columns(t) for t in timing_tables])
+LOOKALIKE = [
+    {"logged": "2026-03-21 09:00:00", "event": "start", "task": "1.1", "title": "x", "group": "1"},
+    {"logged": "2026-03-21 09:00:00", "event": "step", "task": "1.1", "step": "1/2", "title": "done"},
+    {"logged": "2026-03-21 09:00:00", "event": "step", "task": "1.1", "step": "2/2", "title": "review"},
+]
+lookalike = sp.with_time_section(board_text, sp.time_section(sp.fold_times(LOOKALIKE), TIMES_NOW))
+steps_table = [t for t in sp.find_tables(lookalike.split("\n")) if t.header[0] == "Step"]
+ok("a step table can look like progress", True, sp.progress_columns(steps_table[0]) is not None)
+b = sp.render(lookalike, now=NOW)
+ok("... and still draws no bars and raises no warning", (4, []), (len(b.rows), b.warnings))
+
+# ============================================================================================
 # The command line, in throwaway repositories
 # ============================================================================================
 
@@ -381,11 +598,27 @@ try:
     def page_script(*args, cwd: Path) -> subprocess.CompletedProcess:
         return run(sys.executable, str(SCRIPT), *args, cwd=cwd)
 
+    def time_script(*args, cwd: Path) -> subprocess.CompletedProcess:
+        return run(sys.executable, str(TIME_SCRIPT), *args, cwd=cwd)
+
     loose = tmp / "loose"
     loose.mkdir()
     r = page_script(cwd=loose)
     ok("outside git without --source: refused", (1, True),
        (r.returncode, "not inside a git repository" in r.stderr))
+
+    shutil.copy(FIXTURES / "blocked.md", tmp / "timed.md")
+    r = page_script("--source", str(tmp / "timed.md"), "--time-log", str(FIXTURES / "time-log.jsonl"),
+                    "--output", str(tmp / "timed.html"), cwd=tmp)
+    ok("--time-log: the section comes from the log named, with no warning", (0, True, ""),
+       (r.returncode, "; 5 timed tasks;" in r.stdout, r.stderr))
+    has("... and is written into the board", "| 1.2 | Cache \\| content keys | 2026-03-21 09:10:00 | 1h 00m "
+        "| 1m 00s | 1h 01m | — | 0 |", (tmp / "timed.md").read_text(encoding="utf-8"))
+    (tmp / "broken.jsonl").write_text("not json\n", encoding="utf-8")
+    r = page_script("--source", str(tmp / "timed.md"), "--time-log", str(tmp / "broken.jsonl"),
+                    "--output", str(tmp / "timed.html"), cwd=tmp)
+    ok("a line the log cannot read is a render warning",
+       "warning: time log line 1 is not a stamped record; skipped", r.stderr.strip())
 
     r = run(sys.executable, "-c",
             "import runpy, sys; sys.modules['markdown'] = None; sys.argv = ['status_page.py']; "
@@ -413,6 +646,9 @@ try:
         has("the summary line is ASCII and carries the headline",
             "10 of 19 tasks done, 1 of 4 lanes landed)", r.stdout)
         ok("git sees nothing the board wrote", "", run("git", "status", "--porcelain", cwd=repo).stdout)
+        ok("with no time log yet, the board says so after its plan, and nothing else changes",
+           (True, head + EMPTY + "\n" + tail),
+           ("; no timed work;" in r.stdout, (repo / "STATUS.md").read_text(encoding="utf-8")))
 
         # Every worktree has a board of its own, so sessions in different worktrees run in
         # parallel: its own STATUS.md, its own page and its own URL, none shared with another.
@@ -432,6 +668,48 @@ try:
         ok("... and leaves the main tree's page alone", main_before, main_page.read_text(encoding="utf-8"))
         ok("the shared exclude covers the worktree's STATUS.md: it stays clean",
            "", run("git", "status", "--porcelain", cwd=worktree).stdout)
+
+        # The time log is the worktree's own too, beside its page. The times come from the clock,
+        # so these cases compare against the commits' own dates, not values fixed in advance.
+        r = time_script("start", "1.1", "Reader", cwd=worktree)
+        ok("time_log.py from a linked worktree: exit 0", 0, r.returncode)
+        ok("... into the worktree's own git dir, not the main tree's", (True, False),
+           ((repo / ".git" / "worktrees" / "wt" / sp.TIME_LOG).is_file(), (repo / ".git" / sp.TIME_LOG).is_file()))
+        run("git", "commit", "-q", "--allow-empty", "-m", "one", cwd=worktree)
+        run("git", "commit", "-q", "--allow-empty", "-m", "two", cwd=worktree)
+        first, last = run("git", "show", "-s", "--format=%ad", f"--date=format-local:{sp.STAMP_FORMAT}",
+                          "HEAD~1", "HEAD", cwd=worktree).stdout.split("\n")[:2]
+        r = time_script("report", "1.1", "--commit", "HEAD~1", cwd=worktree)
+        ok("report --commit takes the commit's author date", (0, True),
+           (r.returncode, r.stdout.strip().endswith(f" report 1.1 at {first}")))
+        time_script("step", "1.1", "build", "Build and test", cwd=worktree)
+        r = time_script("step-commits", "1.1", "build", "HEAD~2..HEAD", cwd=worktree)
+        ok("step-commits reads a range: its count, first and last author dates", (0, True),
+           (r.returncode, r.stdout.strip().endswith(f" step-commits 1.1 build: 2, {first} to {last}")))
+        for rev, message in (("HEAD..HEAD", "HEAD..HEAD names no commits"),
+                             ("no-such-rev", "git cannot read no-such-rev")):
+            r = time_script("step-commits", "1.1", "build", rev, cwd=worktree)
+            ok(f"step-commits refuses {rev}", (1, f"error: {message}"), (r.returncode, r.stderr.strip()))
+        try:
+            tl.commit_dates(["-p"], worktree)
+            refused = None
+        except tl.Refused as refusal:
+            refused = str(refusal)
+        ok("a revision that git would read as an option is refused", "'-p' is not a commit", refused)
+        time_script("step-done", "1.1", "build", "--note", "green", cwd=worktree)
+        time_script("done", "1.1", "--fix-rounds", "0", cwd=worktree)
+        r = page_script(cwd=worktree)
+        status = (worktree / "STATUS.md").read_text(encoding="utf-8")
+        ok("the render rebuilds the worktree's section from its own log", (0, True, True),
+           (r.returncode, "; 1 timed task;" in r.stdout, "| 1.1 | Reader | " in status))
+        has("... with the step's first and last commit", f"| {first} | {last} |", status)
+        ok("... after the board's own text, which stays as it was",
+           True, status.startswith((FIXTURES / "blocked.md").read_text(encoding="utf-8")))
+        written = (worktree / "STATUS.md").read_bytes()
+        page_script(cwd=worktree)
+        ok("with nothing running, a second render leaves the file as it was",
+           written, (worktree / "STATUS.md").read_bytes())
+        ok("git sees nothing the time log wrote", "", run("git", "status", "--porcelain", cwd=worktree).stdout)
 
         none_yet = "(none yet; the first publish creates it)"
         ok("no URL remembered yet", none_yet, page_script("--url", cwd=worktree).stdout.strip())
@@ -481,6 +759,9 @@ try:
                Path(tempfile.gettempdir()).resolve(), written.parent.resolve() if written else None)
             if written is not None and written.is_file():
                 written.unlink()
+            r = time_script("start", "1", "x", cwd=loose)
+            ok("time_log.py outside git without --log: refused",
+               (1, "error: not inside a git working tree; pass --log"), (r.returncode, r.stderr.strip()))
 finally:
     remove(tmp)
 
@@ -488,7 +769,7 @@ finally:
 # Python 3.9 grammar
 # ============================================================================================
 
-for source in (SCRIPT, Path(__file__).resolve()):
+for source in (SCRIPT, TIME_SCRIPT, Path(__file__).resolve()):
     try:
         ast.parse(source.read_text(encoding="utf-8"), feature_version=(3, 9))
         ok(f"{source.name} parses as Python 3.9", True, True)

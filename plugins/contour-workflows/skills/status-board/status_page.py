@@ -5,12 +5,13 @@ The status-board skill runs this after every edit of STATUS.md and republishes t
 private artifact URL, so the owner keeps a single link that is always current.
 
     python3 status_page.py [--source FILE] [--output FILE] [--title TEXT] [--standalone]
+                           [--time-log FILE]
     python3 status_page.py --url
     python3 status_page.py --remember-url URL
 
 Every working tree of a repository — the main one and each linked worktree — has a board of its
-own: its own STATUS.md, its own rendered page and its own remembered URL, so sessions in different
-worktrees run the skill in parallel without writing over each other.
+own: its own STATUS.md, its own rendered page, its own remembered URL and its own time log, so
+sessions in different worktrees run the skill in parallel without writing over each other.
 
 --source      Defaults to STATUS.md at the root of the current working tree.
 --output      Defaults to <the working tree's git dir>/status-board.html: inside .git, so it can
@@ -19,6 +20,8 @@ worktrees run the skill in parallel without writing over each other.
 --title       Defaults to the goal in STATUS.md's "## Current plan:" heading, else its H1.
 --standalone  Wraps the page in a complete HTML document, for opening from disk. Without it the
               output is the fragment the Artifact tool wraps in its own document skeleton.
+--time-log    Defaults to <the working tree's git dir>/status-board.times.jsonl, which
+              time_log.py appends to at every dispatch, report, completion and step.
 --url         Prints the working tree's remembered page URL, or a line saying there is none yet.
 --remember-url
               Remembers URL as the working tree's page, in <git dir>/status-board.url.
@@ -27,15 +30,21 @@ A progress bar is drawn for every row of every Markdown table that has an N/M co
 column — one headed State or Status, or one made of recognised state words. The headline sums them.
 Where a table has several N/M columns, the one headed like "Tasks done" is the count.
 
+Every render first rebuilds the "## Time spent" section of the source from the time log, in place,
+and writes the source back when that changed it: the section's own lines and nothing else. A board
+without the section gains it after the plan's. Its tables are never read as progress.
+
 Needs Python 3.9+ and the `markdown` package; nothing else outside the standard library.
 """
 
 from __future__ import annotations
 
 import argparse
+import codecs
 import datetime
 import hashlib
 import html
+import json
 import re
 import subprocess
 import sys
@@ -508,6 +517,315 @@ def progress_columns(table: Table) -> tuple[int | None, int, int, bool] | None:
     return name, count, state, guessed
 
 
+# --- The time log ----------------------------------------------------------------------------
+
+# One JSON object per line, appended by time_log.py at the moment of each event and never
+# rewritten. Every record carries `logged`, the local time it was written; any other time in it
+# (`at`, `since`, `first`, `last`) was taken from a record named when it was logged — a commit's
+# author date, a message's time — never from memory.
+TIME_LOG = "status-board.times.jsonl"
+STAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+TIME_HEADING = re.compile(r"^##\s+Time spent\s*$", re.I)
+TOP_HEADING = re.compile(r"^#{1,2}\s")  # what ends a section that opens with an H2
+NO_TIMES = "No timed work yet: the log starts at the first dispatch."
+
+
+@dataclass
+class Step:
+    id: str
+    title: str
+    start: datetime.datetime
+    done: datetime.datetime | None = None
+    first_commit: datetime.datetime | None = None
+    last_commit: datetime.datetime | None = None
+    commits: int = 0
+    note: str = ""
+
+
+@dataclass
+class Task:
+    id: str
+    title: str
+    group: str  # the lane or phase it belongs to; "" for none
+    start: datetime.datetime  # dispatched
+    report: datetime.datetime | None = None  # its first commit or report
+    done: datetime.datetime | None = None
+    fix_rounds: int | None = None
+    steps: dict[str, Step] = field(default_factory=dict)
+
+
+@dataclass
+class Stall:
+    where: str  # a task's id, or a group's
+    since: datetime.datetime  # the last record of activity before it
+    until: datetime.datetime  # when it was found and logged
+    what: str
+
+
+@dataclass
+class Times:
+    groups: dict[str, str] = field(default_factory=dict)  # id -> name, in order of first appearance
+    tasks: dict[str, Task] = field(default_factory=dict)  # in order of dispatch
+    stalls: list[Stall] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)  # records that matched nothing logged before them
+    began: datetime.datetime | None = None  # the first record's time
+
+
+def stamp(text: object) -> datetime.datetime | None:
+    """A YYYY-MM-DD HH:MM:SS time, or None for anything else."""
+    if not isinstance(text, str):
+        return None
+    try:
+        return datetime.datetime.strptime(text, STAMP_FORMAT)
+    except ValueError:
+        return None
+
+
+def time_log_path(start: Path) -> Path | None:
+    """The working tree's time log: in its own git dir, beside its page and its URL."""
+    own = git_dir(start)
+    return own / TIME_LOG if own is not None else None
+
+
+def read_time_log(path: Path | None) -> tuple[list[dict], list[str]]:
+    """The log's records in the order they were written, and a line for each one it skipped."""
+    if path is None or not path.is_file():
+        return [], []
+    records, problems = [], []
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if isinstance(record, dict) and stamp(record.get("logged")) is not None:
+            records.append(record)
+        else:
+            problems.append(f"time log line {n} is not a stamped record; skipped")
+    return records, problems
+
+
+def fold_times(records: list[dict]) -> Times:
+    """Replay the log's records, in order, into its groups, tasks, steps and stalls."""
+    times = Times()
+    for r in records:
+        event, logged = r.get("event"), stamp(r["logged"])
+        times.began = times.began or logged
+        task = times.tasks.get(str(r.get("task")))
+        step = task.steps.get(str(r.get("step"))) if task else None
+        where = str(r.get("where"))
+        if event == "group":
+            times.groups[str(r.get("group", ""))] = str(r.get("name", ""))
+        elif event == "start" and task is None:
+            group = str(r.get("group", ""))
+            times.groups.setdefault(group, "")
+            times.tasks[str(r.get("task"))] = Task(str(r.get("task")), str(r.get("title", "")), group, logged)
+        elif event == "report" and task is not None:
+            task.report = task.report or stamp(r.get("at")) or logged  # the first one counts
+        elif event == "done" and task is not None:
+            task.done = logged
+            if isinstance(r.get("fix_rounds"), int):
+                task.fix_rounds = r["fix_rounds"]
+        elif event == "step" and task is not None and step is None:
+            task.steps[str(r.get("step"))] = Step(str(r.get("step")), str(r.get("title", "")), logged)
+        elif event == "step-commits" and step is not None:
+            step.first_commit, step.last_commit = stamp(r.get("first")), stamp(r.get("last"))
+            step.commits = r.get("count") if isinstance(r.get("count"), int) else 0
+        elif event == "step-done" and step is not None:
+            step.done = logged
+            step.note = str(r.get("note", step.note))
+        elif (event == "idle" and (where in times.tasks or where in times.groups)
+              and stamp(r.get("since")) is not None):
+            times.stalls.append(Stall(where, stamp(r.get("since")), logged, str(r.get("what", ""))))
+        else:
+            times.problems.append(f"time log: a '{event}' record logged {r['logged']} matches nothing "
+                                  f"logged before it; skipped")
+    return times
+
+
+def duration(seconds: float | None) -> str:
+    """A span as the board shows it: hours and minutes from an hour up, minutes and seconds below."""
+    if seconds is None:
+        return "—"
+    total = round(seconds)
+    hours, rest = divmod(abs(total), 3600)
+    minutes, secs = divmod(rest, 60)
+    sign = "-" if total < 0 else ""
+    return f"{sign}{hours}h {minutes:02d}m" if hours else f"{sign}{minutes}m {secs:02d}s"
+
+
+def when(moment: datetime.datetime | None) -> str:
+    return moment.strftime(STAMP_FORMAT) if moment else "—"
+
+
+def table_cell(text: str) -> str:
+    """Text for a table cell: one line, with its pipes escaped."""
+    return " ".join(text.split()).replace("|", "\\|")
+
+
+def task_spans(task: Task, now: datetime.datetime) -> tuple[float, float | None, float]:
+    """(implement, review & fixes, total) in seconds. Running work counts to now; a task with no
+    report is implementation throughout."""
+    end = task.done or now
+    implement = ((task.report or end) - task.start).total_seconds()
+    review = (end - task.report).total_seconds() if task.report else None
+    return implement, review, (end - task.start).total_seconds()
+
+
+def covered(spans: list[tuple[datetime.datetime, datetime.datetime]]) -> float:
+    """Seconds during which at least one of the spans was running."""
+    total, reach = 0.0, None
+    for begin, end in sorted(spans):
+        if reach is None or begin > reach:
+            total += (end - begin).total_seconds()
+            reach = end
+        elif end > reach:
+            total += (end - reach).total_seconds()
+            reach = end
+    return total
+
+
+def time_section(times: Times, now: datetime.datetime) -> str:
+    """The board's "## Time spent" section, as Markdown, from the folded log.
+
+    A row per lane or phase, a table of its tasks under each, a table of steps under every task
+    that has them, and the idle stalls. Running work counts to now, which is stated only while
+    something runs, so a finished run's section is the same at every render. None of its own
+    columns is an N/M count, and render() never reads its tables as progress in any case: a log's
+    ids and titles could still make one look like it.
+    """
+    now = now.replace(tzinfo=None)  # the log's times are local, with no offset
+    out = ["## Time spent", ""]
+    if not times.tasks:
+        return "\n".join(out + [NO_TIMES]) + "\n"
+
+    def label(group: str) -> str:
+        name = times.groups.get(group, "")
+        if not group:
+            return name or "Ungrouped"
+        return f"{group} · {name}" if name else group
+
+    def idle(ids: set[str]) -> float | None:
+        spans = [(s.until - s.since).total_seconds() for s in times.stalls if s.where in ids]
+        return sum(spans) if spans else None
+
+    def summary(name: str, tasks: list[Task], ids: set[str]) -> str:
+        spans = [task_spans(t, now) for t in tasks]
+        finished = [total for t, (_, _, total) in zip(tasks, spans) if t.done]
+        reviews = [review for _, review, _ in spans if review is not None]
+        wall = (max(t.done or now for t in tasks) - min(t.start for t in tasks)).total_seconds()
+        running = " (running)" if len(finished) < len(tasks) else ""
+        return (f"| {name}{running} | {len(finished)} | {duration(wall)} "
+                f"| {duration(sum(implement for implement, _, _ in spans))} "
+                f"| {duration(sum(reviews) if reviews else None)} "
+                f"| {duration(sum(finished) / len(finished) if finished else None)} | {duration(idle(ids))} |")
+
+    intro = ("From the time log, stamped as each event happened. *Implement* runs from a task's "
+             "dispatch to its first commit or report, *review & fixes* from there to done, and *wall "
+             "time* from the first dispatch to the last completion: less than their sum where work ran "
+             "in parallel.")
+    if any(t.done is None for t in times.tasks.values()):
+        intro += f" Work still running counts to {when(now)}."
+    out += [intro, ""]
+
+    groups = {g: [t for t in times.tasks.values() if t.group == g] for g in times.groups}
+    groups = {g: tasks for g, tasks in groups.items() if tasks}
+    out += ["| Lane or phase | Finished | Wall time | Implement | Review & fixes | Mean per task | Idle |",
+            "|---|---|---|---|---|---|---|"]
+    for group, tasks in groups.items():
+        out.append(summary(table_cell(label(group)), tasks, {group} | {t.id for t in tasks}))
+    out.append(summary("**All**", list(times.tasks.values()), set(times.groups) | set(times.tasks)))
+
+    for group, tasks in groups.items():
+        out += ["", f"### {table_cell(label(group))}", "",
+                "| Task | What | Started | Implement | Review & fixes | Total | Idle | Fix rounds |",
+                "|---|---|---|---|---|---|---|---|"]
+        for t in tasks:
+            implement, review, total = task_spans(t, now)
+            running = "" if t.done else " (running)"
+            fix_rounds = "—" if t.fix_rounds is None else str(t.fix_rounds)
+            out.append(f"| {table_cell(t.id)} | {table_cell(t.title)}{running} | {when(t.start)} "
+                       f"| {duration(implement)} | {duration(review)} | {duration(total)} "
+                       f"| {duration(idle({t.id}))} | {fix_rounds} |")
+        for t in (t for t in tasks if t.steps):
+            out += ["", f"**Task {table_cell(t.id)} by step**", "",
+                    "| Step | What | Started | First commit | Last commit | Done | Took | Commits | Note |",
+                    "|---|---|---|---|---|---|---|---|---|"]
+            spans = []
+            for s in t.steps.values():
+                spans.append((s.start, s.done or now))
+                running = "" if s.done else " (running)"
+                out.append(f"| {table_cell(s.id)} | {table_cell(s.title)}{running} | {when(s.start)} "
+                           f"| {when(s.first_commit)} | {when(s.last_commit)} | {when(s.done)} "
+                           f"| {duration((spans[-1][1] - s.start).total_seconds())} | {s.commits} "
+                           f"| {table_cell(s.note)} |")
+            wall = (max(e for _, e in spans) - min(b for b, _ in spans)).total_seconds()
+            busy = sum((e - b).total_seconds() for b, e in spans)
+            union = covered(spans)
+            commits = sum(s.commits for s in t.steps.values())
+            parts = [f"{len(spans)} step{'s' if len(spans) != 1 else ''}, "
+                     f"{commits} commit{'s' if commits != 1 else ''}",
+                     f"wall time {duration(wall)}", f"step time {duration(busy)}"]
+            if busy > union:
+                parts.append(f"{duration(busy - union)} of it in parallel")
+            if wall > union:
+                parts.append(f"{duration(wall - union)} with no step running")
+            out += ["", " · ".join(parts) + "."]
+
+    if times.stalls:
+        out += ["", "### Idle stalls", "", "| Where | From | To | Idle | What stalled |", "|---|---|---|---|---|"]
+        for s in times.stalls:
+            where = f"Task {s.where}" if s.where in times.tasks else label(s.where)
+            out.append(f"| {table_cell(where)} | {when(s.since)} | {when(s.until)} "
+                       f"| {duration((s.until - s.since).total_seconds())} | {table_cell(s.what)} |")
+    return "\n".join(out) + "\n"
+
+
+def time_section_span(lines: list[str]) -> tuple[int, int] | None:
+    """The lines of the "## Time spent" section: its heading up to the next H1 or H2, or the end."""
+    inside = fenced(lines)
+    start = next((i for i, line in enumerate(lines) if not inside[i] and TIME_HEADING.match(line)), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if not inside[i] and TOP_HEADING.match(lines[i])),
+               len(lines))
+    return start, end
+
+
+def with_time_section(text: str, section: str) -> str:
+    """The board with its "## Time spent" section replaced by section, or added after the plan's
+    section when it has none, or at the end without a plan. No other line changes."""
+    lines = text.split("\n")
+    new = section.rstrip("\n").split("\n") + [""]
+    span = time_section_span(lines)
+    if span is None:
+        inside = fenced(lines)
+        plan = next((i for i, line in enumerate(lines) if not inside[i] and PLAN.match(line)), None)
+        at = len(lines) if plan is None else next(
+            (i for i in range(plan + 1, len(lines)) if not inside[i] and TOP_HEADING.match(lines[i])),
+            len(lines))
+        if at and lines[at - 1].strip():
+            new.insert(0, "")
+        span = (at, at)
+    start, end = span
+    return "\n".join(lines[:start] + new + lines[end:])
+
+
+def refresh_time_section(source: Path, section: str) -> str:
+    """Rebuild the source's time section on disk, keeping its byte-order mark and line endings,
+    and return its text as the renderer reads it."""
+    raw = source.read_bytes()
+    bom = codecs.BOM_UTF8 if raw.startswith(codecs.BOM_UTF8) else b""
+    original = raw[len(bom):].decode("utf-8")
+    crlf = "\r\n" in original
+    text = original.replace("\r\n", "\n")
+    updated = with_time_section(text, section)
+    if updated != text:
+        source.write_bytes(bom + (updated.replace("\n", "\r\n") if crlf else updated).encode("utf-8"))
+    return updated
+
+
 # --- Rendering -------------------------------------------------------------------------------
 
 
@@ -575,11 +893,13 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
     warnings = nested_list_warnings(original) + timestamp_warnings(original)
     lines = separate_blocks(original)
 
-    # The progress tables: collect their rows, and turn each state cell into a chip.
+    # The progress tables: collect their rows, and turn each state cell into a chip. The time
+    # section's tables are generated timings, never progress, whatever a log's ids and titles say.
     rows: list[Row] = []
     count_nouns, row_nouns = set(), set()
+    timings = time_section_span(lines) or (0, 0)
     for table in find_tables(lines):
-        columns = progress_columns(table)
+        columns = None if timings[0] <= table.start < timings[1] else progress_columns(table)
         if columns is None:
             continue
         name_col, count_col, state_col, guessed = columns
@@ -845,6 +1165,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--title", help="the page title (default: the current plan's goal, else the H1)")
     parser.add_argument("--standalone", action="store_true",
                         help="write a complete HTML document for opening from disk")
+    parser.add_argument("--time-log", help=f"the time log (default: <git dir>/{TIME_LOG})")
     parser.add_argument("--url", action="store_true", help="print the working tree's remembered page URL")
     parser.add_argument("--remember-url", metavar="URL", help="remember URL as the working tree's page")
     args = parser.parse_args(argv)
@@ -875,8 +1196,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {source}: no such file", file=sys.stderr)
         return 1
 
-    board = render(source.read_text(encoding="utf-8-sig"), title=args.title,
-                   source_name=source.name, standalone=args.standalone)
+    # The time section is rebuilt from the log at every render, so the board's timings are never
+    # older than the page; running work counts to the same second as "Page generated".
+    now = datetime.datetime.now().astimezone()
+    log = Path(args.time_log) if args.time_log else time_log_path(source.resolve().parent)
+    records, problems = read_time_log(log)
+    times = fold_times(records)
+    text = refresh_time_section(source, time_section(times, now))
+    board = render(text, title=args.title, source_name=source.name, now=now, standalone=args.standalone)
+    board.warnings += problems + times.problems
 
     output = Path(args.output) if args.output else default_output(source)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -889,8 +1217,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning: {warning}", file=sys.stderr)
     # ASCII separators: this line is read through whatever code page the calling shell pipes in.
     progress = f"{len(board.rows)} progress rows" if board.rows else "no progress table"
+    timed = (f"{len(times.tasks)} timed task{'s' if len(times.tasks) != 1 else ''}" if times.tasks
+             else "no timed work")
     headline = board.headline.replace(" · ", ", ")
-    print(f"wrote {output} ({len(board.page.encode('utf-8'))} bytes; {progress}; {headline})")
+    print(f"wrote {output} ({len(board.page.encode('utf-8'))} bytes; {progress}; {timed}; {headline})")
     return 0
 
 
