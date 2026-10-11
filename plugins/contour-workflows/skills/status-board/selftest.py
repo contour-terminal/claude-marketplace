@@ -421,7 +421,7 @@ try:
         run("git", "worktree", "add", "-q", "-b", "selftest-wt", str(worktree), cwd=repo)
         r = page_script(cwd=worktree)
         ok("a linked worktree without a STATUS.md of its own does not render the main tree's",
-           (1, True), (r.returncode, r.stderr.strip().endswith("wt/STATUS.md: no such file")))
+           (1, True), (r.returncode, r.stderr.strip().replace("\\", "/").endswith("wt/STATUS.md: no such file")))
         shutil.copy(FIXTURES / "blocked.md", worktree / "STATUS.md")
         main_before = main_page.read_text(encoding="utf-8")
         r = page_script(cwd=worktree)
