@@ -10,6 +10,8 @@ Checks performed:
   * every ``skills/*/SKILL.md`` carries YAML frontmatter with non-empty
     ``name`` and ``description`` fields, and its ``name`` matches the
     skill's directory
+  * no ``description`` is longer than the Agent Skills limit of 1024
+    characters, past which a skill's triggers are cut off
   * every ``hooks/hooks.json`` parses and each command it references via
     ``${CLAUDE_PLUGIN_ROOT}/...`` points at a file that exists
 
@@ -34,6 +36,9 @@ except ImportError:  # pragma: no cover - optional dependency
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MARKETPLACE = REPO_ROOT / ".claude-plugin" / "marketplace.json"
+# The Agent Skills limit on a skill's description. The description is all Claude sees when it
+# decides whether to load a skill, so the trigger phrases it lists must fit inside it.
+DESCRIPTION_LIMIT = 1024
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -117,6 +122,12 @@ def validate_skill(skill_dir: Path) -> None:
         value = fm.get(field)
         if not (isinstance(value, str) and value.strip()):
             err(f"{rel(skill_md)}: frontmatter '{field}' is missing or empty")
+    description = fm.get("description")
+    if isinstance(description, str) and len(description.strip()) > DESCRIPTION_LIMIT:
+        err(
+            f"{rel(skill_md)}: description is {len(description.strip())} characters, "
+            f"over the limit of {DESCRIPTION_LIMIT}"
+        )
     name = fm.get("name")
     if isinstance(name, str) and name.strip() and name.strip() != skill_dir.name:
         err(
