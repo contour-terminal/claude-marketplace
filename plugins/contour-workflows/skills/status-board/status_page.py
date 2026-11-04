@@ -32,7 +32,9 @@ Where a table has several N/M columns, the one headed like "Tasks done" is the c
 
 Every render first rebuilds the "## Time spent" section of the source from the time log, in place,
 and writes the source back when that changed it: the section's own lines and nothing else. A board
-without the section gains it after the plan's. Its tables are never read as progress.
+without the section gains it after the plan's. Its tables are never read as progress, and the
+section stays off the page: the page draws the log as a timeline figure under the progress bars,
+one block per lane on a shared clock, with each task's bar split by what its time went on.
 
 Needs Python 3.9+ and the `markdown` package; nothing else outside the standard library.
 """
@@ -99,12 +101,14 @@ LIGHT = {
     "rule": "#D7DDD8", "accent": "#1C5C64", "code-bg": "#E7ECE9",
     "done": "#2D7A4D", "done-bg": "#DCEFE3", "running": "#9A5B12", "running-bg": "#F6E7CF",
     "blocked": "#A63D2F", "blocked-bg": "#F7DEDA", "todo": "#6A7571", "todo-bg": "#E8ECEA",
+    "implement": "#2A6FBB", "review": "#D1477A",
 }
 DARK = {
     "bg": "#111614", "surface": "#19201D", "ink": "#E2E8E5", "muted": "#98A39E",
     "rule": "#2B3431", "accent": "#72B4BB", "code-bg": "#222A27",
     "done": "#7FC89C", "done-bg": "#1D3327", "running": "#E3AE62", "running-bg": "#3A2C17",
     "blocked": "#F0907F", "blocked-bg": "#3D1F1A", "todo": "#97A29D", "todo-bg": "#252D2A",
+    "implement": "#4F8FD6", "review": "#DB5F94",
 }
 
 
@@ -188,6 +192,39 @@ ol.ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 .swatch.blocked { background: var(--blocked); }
 .swatch.todo { background: var(--todo-bg); box-shadow: inset 0 0 0 1px var(--rule); }
 .note { margin: 0; font-size: 0.9rem; color: var(--muted); }
+
+.timeline { display: grid; gap: 8px; }
+.tl-plot { position: relative; display: grid; gap: 6px; }
+.tl-grid { position: absolute; inset-block: 0; width: 1px; background: var(--rule); }
+.tl-grid.now { background: var(--ink); }
+.tl-lane { position: relative; display: grid; gap: 3px; }
+.tl-lane .lane-name { background: var(--bg); padding-inline-end: 6px; }
+.tl-track { position: relative; height: 22px; }
+.tl-task {
+  position: absolute; inset-block: 0; display: flex; gap: 1px; min-width: 4px; padding: 0; margin: 0;
+  border: 0; border-inline-end: 2px solid transparent; background: none; color: var(--bg); cursor: pointer;
+  border-radius: 4px; overflow: hidden; box-sizing: border-box; font: inherit;
+}
+.tl-task.running { clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%); }
+.tl-task:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.tl-label {
+  position: absolute; inset-inline-start: 4px; inset-block-start: 2px; font-size: 0.68rem; font-weight: 600;
+  white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.tl-seg { display: block; min-width: 0; flex-basis: 0; }
+.tl-seg.implement, .swatch.implement { background: var(--implement); }
+.tl-seg.review, .swatch.review { background: var(--review); }
+.tl-seg.idle, .swatch.idle, .tl-band {
+  background: repeating-linear-gradient(45deg, var(--todo) 0 2px, var(--todo-bg) 2px 5px);
+}
+.tl-band { position: absolute; inset-block: 0; border-radius: 4px; opacity: 0.7; }
+.tl-axis { position: relative; height: 2.2em; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-tick { position: absolute; bottom: 0; transform: translateX(-50%); line-height: 1.15; text-align: center; white-space: nowrap; }
+.tl-tick.first { transform: none; text-align: start; }
+.tl-tick.last { transform: translateX(-100%); text-align: end; }
+.tl-tick small { display: block; font-size: inherit; }
+.tl-empty { position: absolute; inset-block: 0; display: flex; align-items: center; font-size: 0.8rem; color: var(--muted); }
+.tl-readout { margin: 0; min-height: 3em; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 
 main { display: grid; gap: 4px; min-width: 0; }
 main h2 {
@@ -686,6 +723,13 @@ def covered(spans: list[tuple[datetime.datetime, datetime.datetime]]) -> float:
     return total
 
 
+def group_label(times: Times, group: str) -> str:
+    name = times.groups.get(group, "")
+    if not group:
+        return name or "Ungrouped"
+    return f"{group} · {name}" if name else group
+
+
 def time_section(times: Times, now: datetime.datetime) -> str:
     """The board's "## Time spent" section, as Markdown, from the folded log.
 
@@ -701,10 +745,7 @@ def time_section(times: Times, now: datetime.datetime) -> str:
         return "\n".join(out + [NO_TIMES]) + "\n"
 
     def label(group: str) -> str:
-        name = times.groups.get(group, "")
-        if not group:
-            return name or "Ungrouped"
-        return f"{group} · {name}" if name else group
+        return group_label(times, group)
 
     def idle(ids: set[str]) -> float | None:
         spans = [(s.until - s.since).total_seconds() for s in times.stalls if s.where in ids]
@@ -826,6 +867,181 @@ def refresh_time_section(source: Path, section: str) -> str:
     return updated
 
 
+# --- The timeline figure ---------------------------------------------------------------------
+
+KIND_NAMES = {"implement": "implement", "review": "review & fixes", "idle": "idle", "gap": "no step running"}
+REVIEW_STEP = re.compile(r"review|fix", re.I)
+TICK_STEPS = (60, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800, 2592000)
+MAX_TICKS = 5
+TIMELINE_SCRIPT = """\
+<script>
+document.querySelectorAll('.tl-task').forEach(function (bar) {
+  ['mouseenter', 'focus', 'click'].forEach(function (name) {
+    bar.addEventListener(name, function () {
+      document.querySelector('.tl-readout').textContent = bar.getAttribute('aria-label');
+    });
+  });
+});
+</script>"""
+
+
+def step_kind(step: Step) -> str:
+    return "review" if REVIEW_STEP.search(f"{step.id} {step.title}") else "implement"
+
+
+def timeline_segments(task: Task, stalls: list[Stall],
+                      now: datetime.datetime) -> list[tuple[datetime.datetime, datetime.datetime, str]]:
+    """What a task's time went on: ordered, non-overlapping (begin, end, kind) spans.
+
+    Layers are painted in order, so a later one wins where they overlap: a task's own spans, or
+    its steps with review over implement and a gap where no step ran, then its stalls.
+    """
+    end = task.done or now
+    if task.steps:
+        kinds = [(s, step_kind(s)) for s in task.steps.values()]
+        layers = [(task.start, end, "gap")]
+        for wanted in ("implement", "review"):
+            layers += [(s.start, s.done or now, kind) for s, kind in kinds if kind == wanted]
+    else:
+        split = task.report or end
+        layers = [(task.start, split, "implement"), (split, end, "review")]
+    layers += [(s.since, s.until, "idle") for s in stalls if s.where == task.id]
+    layers = [(max(b, task.start), min(e, end), k) for b, e, k in layers if max(b, task.start) < min(e, end)]
+
+    points = sorted({p for b, e, _ in layers for p in (b, e)})
+    out: list[tuple[datetime.datetime, datetime.datetime, str]] = []
+    for begin, finish in zip(points, points[1:]):
+        kind = next(k for b, e, k in reversed(layers) if b <= begin and finish <= e)
+        if out and out[-1][2] == kind:
+            out[-1] = (out[-1][0], finish, kind)
+        else:
+            out.append((begin, finish, kind))
+    return out
+
+
+def timeline_tracks(tasks: list[Task], now: datetime.datetime) -> list[list[Task]]:
+    """Tasks by track: each, in order of start, on the first track where it overlaps nothing."""
+    tracks: list[list[Task]] = []
+    for task in sorted(tasks, key=lambda t: t.start):
+        for track in tracks:
+            if (track[-1].done or now) <= task.start:
+                track.append(task)
+                break
+        else:
+            tracks.append([task])
+    return tracks
+
+
+def task_readout(task: Task, stalls: list[Stall], now: datetime.datetime) -> str:
+    """One line with a task's exact timings, and what the figure cannot show."""
+    end = task.done or now
+    parts = [f"{task.id} {plain(task.title)}".strip() + ("" if task.done else " (running)"),
+             f"{when(task.start)} to {when(task.done) if task.done else 'now'}"]
+    totals: dict[str, float] = {}
+    for begin, finish, kind in timeline_segments(task, stalls, now):
+        totals[kind] = totals.get(kind, 0) + (finish - begin).total_seconds()
+    parts += [f"{name} {duration(totals[kind])}" for kind, name in KIND_NAMES.items() if kind in totals]
+    if task.fix_rounds is not None:
+        parts.append(f"{task.fix_rounds} fix round{'s' if task.fix_rounds != 1 else ''}")
+    parts += [f"{s.id}: {s.note}" for s in task.steps.values() if s.note]
+    parts += [f"stalled: {s.what}" for s in stalls
+              if s.where in (task.id, task.group) and s.since < end and task.start < s.until]
+    return " · ".join(parts)
+
+
+def timeline(times: Times, now: datetime.datetime) -> str:
+    """The figure: every lane on one clock, each task's bar split by what its time went on.
+
+    Empty for a log with no tasks; the caller says so in a line of its own.
+    """
+    if not times.tasks:
+        return ""
+    now = now.replace(tzinfo=None)  # the log's times are local, with no offset
+    tasks = list(times.tasks.values())
+    begin = min(t.start for t in tasks)
+    running = any(t.done is None for t in tasks)
+    end = max([t.done or now for t in tasks] + [s.until for s in times.stalls])
+    span = max((end - begin).total_seconds(), 1)
+
+    def pct(moment: datetime.datetime) -> float:
+        return 100 * (moment - begin).total_seconds() / span
+
+    def bar(task: Task) -> str:
+        text = html.escape(task_readout(task, times.stalls, now))
+        spans = timeline_segments(task, times.stalls, now) or [(task.start, task.start, "implement")]
+        segs = "".join(f'<span class="tl-seg {"idle" if kind == "gap" else kind}" '
+                       f'style="flex-grow: {max((e - b).total_seconds(), 1):.0f};"></span>'
+                       for b, e, kind in spans)
+        left, right = pct(task.start), pct(task.done or now)
+        cls = "tl-task" if task.done else "tl-task running"
+        return (f'<button type="button" class="{cls}" style="left: {left:.3f}%; width: {right - left:.3f}%;" '
+                f'title="{text}" aria-label="{text}">{segs}'
+                f'<span class="tl-label">{html.escape(task.id)}</span></button>')
+
+    def bands(group: str, lane: list[Task]) -> str:
+        """A lane's own stalls, only where none of its tasks is running."""
+        busy = sorted((t.start, t.done or now) for t in lane)
+        out = []
+        for stall in (s for s in times.stalls if s.where == group):
+            free = stall.since
+            for b, e in busy + [(stall.until, stall.until)]:
+                if free < min(b, stall.until):
+                    left, right = pct(free), pct(min(b, stall.until))
+                    out.append(f'<span class="tl-band" style="left: {left:.3f}%; width: {right - left:.3f}%;" '
+                               f'title="{html.escape(stall.what)}"></span>')
+                free = max(free, e)
+        return "".join(out)
+
+    lanes = []
+    for group in times.groups:
+        lane = [t for t in tasks if t.group == group]
+        wall = ""
+        if lane:
+            wall = duration((max(t.done or now for t in lane) - min(t.start for t in lane)).total_seconds())
+        head = (f'<p class="lane-name">{html.escape(group_label(times, group))} '
+                f'<span class="lane-count">{wall}</span></p>')
+        if lane:
+            rows = [f'<div class="tl-track">{bands(group, lane) if i == 0 else ""}'
+                    + "".join(bar(t) for t in track) + "</div>"
+                    for i, track in enumerate(timeline_tracks(lane, now))]
+        else:
+            rows = ['<div class="tl-track"><span class="tl-empty">not started</span></div>']
+        lanes.append(f'<div class="tl-lane">{head}{"".join(rows)}</div>')
+
+    step = next((s for s in TICK_STEPS if span / s <= MAX_TICKS), TICK_STEPS[-1])
+    midnight = begin.replace(hour=0, minute=0, second=0)
+    tick = midnight + datetime.timedelta(seconds=step * (int((begin - midnight).total_seconds()) // step + 1))
+    dated = begin.date() != end.date()
+    ticks, grid = [], []
+    while tick <= end:
+        left = pct(tick)
+        if not (running and left > 92):  # the now label takes the right edge
+            cls = "tl-tick first" if left < 8 else "tl-tick last" if left > 92 else "tl-tick"
+            date = f"<small>{tick.strftime('%m-%d')}</small>" if dated else ""
+            ticks.append(f'<span class="{cls}" style="left: {left:.3f}%;">{date}{tick.strftime("%H:%M")}</span>')
+            grid.append(f'<span class="tl-grid" style="left: {left:.3f}%;"></span>')
+        tick += datetime.timedelta(seconds=step)
+    if running:
+        ticks.append('<span class="tl-tick last" style="left: 100%;">now</span>')
+        grid.append('<span class="tl-grid now" style="left: 100%;"></span>')
+
+    total = duration(span) + (" so far" if running else "")
+    separator = "\n        "
+    return f"""    <section class="timeline" aria-label="Time per lane and task">
+      <p class="headline">Where the time went&nbsp;· {total}</p>
+      <div class="tl-plot">
+        {"".join(grid)}
+        {separator.join(lanes)}
+      </div>
+      <div class="tl-axis">{"".join(ticks)}</div>
+      <ul class="ladder-legend">
+        <li><span class="swatch implement"></span>implement</li><li><span class="swatch review"></span>review &amp; fixes</li><li><span class="swatch idle"></span>idle</li>
+      </ul>
+      <p class="tl-readout" aria-live="polite">Tap a task for its timings.</p>
+    </section>
+{TIMELINE_SCRIPT}"""
+
+
 # --- Rendering -------------------------------------------------------------------------------
 
 
@@ -884,7 +1100,8 @@ def timestamp_warnings(lines: list[str]) -> list[str]:
 
 
 def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md",
-           now: datetime.datetime | None = None, standalone: bool = False) -> Board:
+           now: datetime.datetime | None = None, standalone: bool = False,
+           times: Times | None = None) -> Board:
     if markdown is None:
         sys.exit(MARKDOWN_MISSING)
     # Line numbers in warnings are the file's own, so the nesting check reads it before the
@@ -968,7 +1185,8 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
 
     # The body: everything but the H1, the preamble under it and the stamp, which the masthead
     # carries. The preamble is dropped only when no heading sits between it and the stamp.
-    drop = set()
+    # The time section stays in the file; on the page the timeline figure stands for it.
+    drop = set(range(*timings))
     if h1 is not None:
         drop.add(h1)
     if stamp_line is not None:
@@ -996,6 +1214,7 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
     now = now or datetime.datetime.now().astimezone()
     offset = now.strftime("%z") or "+0000"
     generated = f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset[:3]}:{offset[3:]})"
+    figure = (timeline(times, now) if times else "") or f'    <p class="note no-times">{html.escape(NO_TIMES)}</p>'
     updated_html = (inline(updated) if updated
                     else f'<span class="missing">not stated in {html.escape(source_name)}</span>')
 
@@ -1049,6 +1268,7 @@ def render(text: str, *, title: str | None = None, source_name: str = "STATUS.md
 {title_html}
     <p class="updated"><b>Last updated</b>{updated_html}<br><small>Page generated {generated}</small></p>
 {progress}
+{figure}
   </header>
 
   <main>
@@ -1203,7 +1423,8 @@ def main(argv: list[str] | None = None) -> int:
     records, problems = read_time_log(log)
     times = fold_times(records)
     text = refresh_time_section(source, time_section(times, now))
-    board = render(text, title=args.title, source_name=source.name, now=now, standalone=args.standalone)
+    board = render(text, title=args.title, source_name=source.name, now=now, standalone=args.standalone,
+                   times=times)
     board.warnings += problems + times.problems
 
     output = Path(args.output) if args.output else default_output(source)
