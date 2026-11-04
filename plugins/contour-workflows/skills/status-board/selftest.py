@@ -549,9 +549,8 @@ b = sp.render(sp.with_time_section(board_text, section), now=NOW)
 p = check_page("example with timings", b)
 ok("example with timings: the progress is still the board's own", (4, "10 of 19 tasks done · 1 of 4 lanes landed"),
    (len(b.rows), b.headline))
-has("example with timings: the section is on the page", "<h2>Time spent</h2>", b.page)
-ok("example with timings: one table for the board's progress, and seven for its timings", 8,
-   p.count("table-wrap"))
+has("example with timings: the section is off the page", "<h2>Time spent</h2>", b.page, present=False)
+ok("example with timings: the board's progress is the only table", 1, p.count("table-wrap"))
 span = sp.time_section_span(sp.with_time_section(board_text, section).split("\n"))
 timing_tables = [t for t in sp.find_tables(sp.with_time_section(board_text, section).split("\n"))
                  if span[0] <= t.start < span[1]]
@@ -567,6 +566,149 @@ steps_table = [t for t in sp.find_tables(lookalike.split("\n")) if t.header[0] =
 ok("a step table can look like progress", True, sp.progress_columns(steps_table[0]) is not None)
 b = sp.render(lookalike, now=NOW)
 ok("... and still draws no bars and raises no warning", (4, []), (len(b.rows), b.warnings))
+
+# ============================================================================================
+# The timeline figure
+# ============================================================================================
+
+
+def at(hms: str, day: int = 21) -> datetime.datetime:
+    return datetime.datetime(2026, 3, day, *(int(part) for part in hms.split(":")))
+
+
+def segments(task: sp.Task, stalls: list | None = None, now: datetime.datetime = TIMES_NOW) -> list:
+    return [(b.strftime("%H:%M:%S"), e.strftime("%H:%M:%S"), kind)
+            for b, e, kind in sp.timeline_segments(task, stalls or [], now)]
+
+
+def stepped(*steps: tuple, done: str = "12:00:00") -> sp.Task:
+    return sp.Task("t", "T", "", at("10:00:00"), done=at(done), steps={
+        sid: sp.Step(sid, title, at(begin), done=at(end)) for sid, title, begin, end in steps})
+
+
+ok("a task: implement to its report, review to done",
+   [("09:00:05", "09:45:35", "implement"), ("09:45:35", "10:05:35", "review")],
+   segments(times.tasks["1.1"], times.stalls))
+ok("done without a report: all of it implement", [("12:00:00", "12:10:00", "implement")],
+   segments(times.tasks["hotfix"], times.stalls))
+ok("running: review counts to now",
+   [("12:40:00", "12:55:00", "implement"), ("12:55:00", "13:00:00", "review")],
+   segments(times.tasks["3.1"], times.stalls))
+# Build 10:30-11:30, review 10:45-11:45, a stall 11:45-12:15, "Review fixes" 12:15 to now.
+ok("steps: review wins the overlap, a stall covers the gap, a running step counts to now",
+   [("10:30:00", "10:45:00", "implement"), ("10:45:00", "11:45:00", "review"),
+    ("11:45:00", "12:15:00", "idle"), ("12:15:00", "13:00:00", "review")],
+   segments(times.tasks["2.1"], times.stalls))
+ok("steps: time with no step running is a gap",
+   [("10:00:00", "11:00:00", "implement"), ("11:00:00", "11:30:00", "gap"), ("11:30:00", "12:00:00", "implement")],
+   segments(stepped(("build", "Build", "10:00:00", "11:00:00"), ("polish", "Polish", "11:30:00", "12:00:00"))))
+ok("steps: review by id, by title and in any case",
+   ["review", "review", "review", "implement"],
+   [segments(stepped((sid, title, "10:00:00", "12:00:00")))[0][2] for sid, title in
+    (("fix-1", "Tidy"), ("build", "Code review"), ("gate", "REVIEW"), ("build", "Build"))])
+ok("steps ignore the report", [("10:00:00", "12:00:00", "implement")],
+   segments(sp.Task("t", "T", "", at("10:00:00"), report=at("10:30:00"), done=at("12:00:00"), steps={
+       "b": sp.Step("b", "Build", at("10:00:00"), done=at("12:00:00"))})))
+PLAIN = sp.Task("t", "T", "", at("10:00:00"), done=at("11:00:00"))
+ok("a stall paints over a task",
+   [("10:00:00", "10:20:00", "implement"), ("10:20:00", "10:40:00", "idle"), ("10:40:00", "11:00:00", "implement")],
+   segments(PLAIN, [sp.Stall("t", at("10:20:00"), at("10:40:00"), "x")]))
+ok("a stall is clipped to its task", [("10:00:00", "11:00:00", "idle")],
+   segments(PLAIN, [sp.Stall("t", at("09:00:00"), at("13:00:00"), "x")]))
+ok("another task's stall is not this one's", [("10:00:00", "11:00:00", "implement")],
+   segments(PLAIN, [sp.Stall("other", at("10:20:00"), at("10:40:00"), "x")]))
+
+
+def tracks(*spans: tuple) -> list:
+    tasks = [sp.Task(tid, tid, "", at(begin), done=at(end) if end else None) for tid, begin, end in spans]
+    return [[t.id for t in track] for track in sp.timeline_tracks(tasks, TIMES_NOW)]
+
+
+ok("no overlap stays on one track", [["a", "b"]], tracks(("a", "09:00:00", "10:00:00"), ("b", "10:30:00", "11:00:00")))
+ok("touching is not overlapping", [["a", "b"]], tracks(("a", "09:00:00", "10:00:00"), ("b", "10:00:00", "11:00:00")))
+ok("an overlap opens a second track, and a later task returns to the first",
+   [["a", "c"], ["b"]],
+   tracks(("a", "09:00:00", "10:00:00"), ("b", "09:30:00", "10:30:00"), ("c", "10:15:00", "11:00:00")))
+ok("a running task holds its track to now", [["a"], ["b"]],
+   tracks(("a", "09:00:00", None), ("b", "12:00:00", "12:30:00")))
+ok("tasks are placed in order of start", [["b", "a"]], tracks(("a", "10:00:00", "11:00:00"), ("b", "09:00:00", "09:30:00")))
+
+fig = sp.timeline(times, TIMES_NOW)
+ok("the figure parses with every element closed", [], Page(fig).errors)
+ok("one bar per task", 5, len(re.findall(r'class="tl-task', fig)))
+ok("lanes in the log's order, with their wall times",
+   ["1 · Foundation 1h 10m", "2 · Gate 2h 30m", "Ungrouped 10m 00s", "3 20m 00s"],
+   [html.unescape(re.sub(r"<[^>]+>", "", m)) for m in re.findall(r'<p class="lane-name">(.*?)</p>', fig)])
+ok("hourly ticks, and the one at the right edge gives way to now", ["10:00", "11:00", "12:00", "now"],
+   re.findall(r'class="tl-tick[^"]*"[^>]*>([^<]*)<', fig))
+has("a single day's ticks carry no date", "<small>", fig, present=False)
+has("the readout names the stall", "review done; nobody dispatched the fixes", fig)
+has("the readout names a step's note", "two findings", fig)
+has("the readout totals each kind", "review &amp; fixes 1h 45m", fig)
+has("a running task is marked", 'class="tl-task running"', fig)
+has("the total says it is still counting", "3h 59m so far", fig)
+has("hatching for idle", 'class="tl-seg idle"', fig)
+
+NIGHT = sp.fold_times([
+    {"logged": "2026-03-21 23:00:00", "event": "start", "task": "1.1", "title": "x", "group": "1"},
+    {"logged": "2026-03-22 01:00:00", "event": "done", "task": "1.1"},
+])
+fig = sp.timeline(NIGHT, at("02:00:00", 22))
+has("past midnight the ticks carry the date", "<small>03-22</small>00:00", fig)
+has("nothing running: no so far", "so far", fig, present=False)
+has("nothing running: no now tick", ">now<", fig, present=False)
+
+UNUSUAL = [
+    {"logged": "2026-03-21 09:00:00", "event": "group", "group": "1", "name": "Parser"},
+    {"logged": "2026-03-21 09:00:00", "event": "group", "group": "9", "name": "Later"},
+    {"logged": "2026-03-21 09:00:00", "event": "start", "task": "1.1", "title": "<b>bold</b> & \"quoted\"", "group": "1"},
+    {"logged": "2026-03-21 10:00:00", "event": "done", "task": "1.1"},
+    {"logged": "2026-03-21 10:30:00", "event": "idle", "where": "1", "since": "2026-03-21 09:30:00", "what": "the lane stood <still>"},
+    {"logged": "2026-03-21 10:30:00", "event": "start", "task": "1.2", "title": "y", "group": "1"},
+    {"logged": "2026-03-21 11:00:00", "event": "done", "task": "1.2"},
+]
+folded = sp.fold_times(UNUSUAL)
+ok("the unusual log folds cleanly", [], folded.problems)
+fig = sp.timeline(folded, at("12:00:00"))
+ok("the unusual figure parses", [], Page(fig).errors)
+has("a group with no tasks is listed", "9 · Later", fig)
+has("... and reads not started", "not started", fig)
+has("log text is escaped", "&lt;b&gt;bold&lt;/b&gt;", fig)
+has("... and never raw", "<b>bold", fig, present=False)
+# The stall runs 09:30-10:30; 1.1 runs to 10:00, so 10:00-10:30 of a two-hour axis is drawn.
+has("a lane's stall is a band only where no task runs", 'class="tl-band" style="left: 50.000%; width: 25.000%;"', fig)
+has("... and its reason reaches the task it overlaps", "the lane stood &lt;still&gt;", fig)
+GAP = sp.Times(groups={"": ""}, tasks={"t": stepped(("build", "Build", "10:00:00", "11:00:00"), ("polish", "Polish", "11:30:00", "12:00:00"))})
+has("a gap is named apart from idle in the readout", "no step running 30m 00s", sp.timeline(GAP, at("12:00:00")))
+has("... and drawn hatched like it", 'class="tl-seg idle"', sp.timeline(GAP, at("12:00:00")))
+ok("an empty log has no figure", "", sp.timeline(sp.fold_times([]), TIMES_NOW))
+
+# On the page: the figure between the bars and the plan, the section gone, the file keeping it.
+timed = sp.with_time_section(board_text, section)
+b = sp.render(timed, now=NOW, times=times)
+check_page("example with a figure", b)
+ok("the figure sits between the progress bars and the plan", True,
+   b.page.index('class="ladder-block"') < b.page.index('class="timeline"') < b.page.index("<h2>Plan</h2>"))
+has("the figure carries its script", "addEventListener", b.page)
+ok("the progress headline is unaffected", "10 of 19 tasks done · 1 of 4 lanes landed", b.headline)
+b = sp.render(board_text, now=NOW)
+has("no log: one line in the figure's place", sp.NO_TIMES, b.page)
+has("... and no figure", 'class="timeline"', b.page, present=False)
+has("a board with no progress table still gets the figure", 'class="timeline"',
+    render("no-progress-table.md", times=times).page)
+
+scratch = Path(tempfile.mkdtemp(prefix="status-board-selftest-"))
+try:
+    source, output = scratch / "STATUS.md", scratch / "page.html"
+    source.write_text(board_text, encoding="utf-8")
+    with contextlib.redirect_stdout(io.StringIO()):
+        code = sp.main(["--source", str(source), "--output", str(output),
+                        "--time-log", str(FIXTURES / "time-log.jsonl")])
+    ok("the command line renders", 0, code)
+    has("... with the figure on the page", 'class="timeline"', output.read_text(encoding="utf-8"))
+    has("... and the section in the file", "## Time spent", source.read_text(encoding="utf-8"))
+finally:
+    shutil.rmtree(scratch, ignore_errors=True)
 
 # ============================================================================================
 # The command line, in throwaway repositories

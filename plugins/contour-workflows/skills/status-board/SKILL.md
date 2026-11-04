@@ -1,6 +1,6 @@
 ---
 name: status-board
-description: Use when the user wants to follow a run without having to ask — "keep me posted", "keep me updated", "keep me in the loop", "let me know how it goes", "report back as you go", "I want to follow along", "track progress", "I'll check in from my phone", "show me where we are" during a long run — or wants it timed, "time how long each phase takes". Also to set up, update or publish a status board, a phase board, STATUS.md or its status page. Keeps a local, never-committed STATUS.md current at every state change of the run and republishes it after every edit as a phone-friendly page at one private artifact URL, with the time spent per lane or phase, per task and per step of a long task, from a time log stamped as each event happens. The local counterpart of /sprint-status, for a run with no project board or alongside one.
+description: Use when the user wants to follow a run without having to ask — "keep me posted", "keep me updated", "keep me in the loop", "let me know how it goes", "report back as you go", "I want to follow along", "track progress", "I'll check in from my phone", "show me where we are" during a long run — or wants it timed, "time how long each phase takes". Also to set up, update or publish a status board, a phase board, STATUS.md or its status page. Keeps a local, never-committed STATUS.md current at every state change of the run and republishes it after every edit as a phone-friendly page at one private artifact URL, with a timeline of the time spent per lane or phase and per task, from a time log stamped as each event happens. The local counterpart of /sprint-status, for a run with no project board or alongside one.
 argument-hint: "[init | update | publish]"
 allowed-tools: Bash(git:*), Bash(python3:*), Bash(python:*), Bash(date:*), Read, Edit, Write, Grep, Glob, Artifact
 ---
@@ -30,8 +30,9 @@ a stale body is worse than an old stamp — it tells the owner not to look close
 **Every board also says where the time went.** A time log beside the page is stamped at the moment
 of each dispatch, report, completion and step, and every render rebuilds the board's
 `## Time spent` section from it: per lane or phase, per task, per step of a long task, with every
-idle stall named. Its sibling failure is a row that says a phase gate took fifteen hours and nothing
-about which of them were building, reviewing, fixing or waiting — or timings pieced together
+idle stall named. The page draws the same log as a timeline figure near its top, every lane on one
+clock with each task's bar split by what its time went on. Its sibling failure is a row that says
+a phase gate took fifteen hours and nothing about which of them were building, reviewing, fixing or waiting — or timings pieced together
 afterwards from memory, which are not timings at all.
 
 `$ARGUMENTS` picks the mode. With none: `init` when there is no `STATUS.md`, otherwise `update`.
@@ -196,8 +197,18 @@ What the page does with it:
   the minute and about a list item that opens with a date and no time, and the page's own
   *Page generated* line carries seconds too. Two entries made in the same minute keep their order,
   and a reader can match an entry to a log line or a commit.
-- **`## Time spent` is generated from the time log at every render**, in place: the section's own
-  lines change and no others, and a board without one gains it after the plan's section. It opens
+- **The time log is drawn as a timeline under the progress bars.** One clock axis for every lane,
+  with the lane's wall time beside its name; tasks that overlap take a second line within their
+  lane. Each task's bar is split by colour into *implement*, *review & fixes* and hatched *idle*;
+  a logged stall paints over the rest, and a stall logged against a lane shows where none of its
+  tasks is running. A bar whose task has steps is coloured from them: a step with `review` or `fix`
+  in its id or title is *review & fixes*, any other is *implement*, review wins where they overlap,
+  and time with no step running is hatched and named so. Hovering or tapping a bar gives its exact
+  times, fix rounds, step notes and stall reasons in the line under the figure. An empty log is
+  one line in the figure's place.
+- **`## Time spent` is generated from the time log at every render**, in place, and stays in the
+  file only: the page does not show it. The section's own lines change and no others, and a board
+  without one gains it after the plan's section. It opens
   with a row per lane or phase — tasks finished, wall time, implementation, review and fixes, the
   mean per finished task, idle — then a table per lane or phase with a row per task, a table per
   long task with a row per step, and the idle stalls. *Implement* runs from dispatch to the first
@@ -276,7 +287,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/status-board/time_log.py" start 2.5 "Wire 
   hours — gets a step for its build, each review and each round of fixes, each with its commits.
   Steps may run in parallel: the board sets their wall time beside their summed time, so both the
   overlap and the dead time between steps show. One row for a fifteen-hour gate is the failure
-  this exists for.
+  this exists for. Name review and fix steps as such: the word `review` or `fix` in a step's id or
+  title is what colours it on the page's timeline.
 - **Every idle stall is named.** When a check finds work standing still, log `idle` with the time
   of its last record of activity — its last commit, its last message — and what it was waiting on.
   The stall ends when it is logged; then unstick it.
